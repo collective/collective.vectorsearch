@@ -1,0 +1,5 @@
+=======================
+collective.vectorsearch
+=======================
+
+User documentation
