@@ -56,6 +56,12 @@ setup(
         "z3c.jbot",
         "plone.api>=1.8.4",
         "plone.app.dexterity",
+        "numpy",
+        "torch",
+        "transformers",
+        "sentence_transformers",
+        "accelerate",
+        "bitsandbytes",
     ],
     extras_require={
         "test": [
