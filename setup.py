@@ -57,7 +57,9 @@ setup(
         "plone.api>=1.8.4",
         "plone.app.dexterity",
         "numpy",
-        "scikit-learn",
+        "torch",
+        "transformers",
+        "sentence_transformers",
     ],
     extras_require={
         "test": [
