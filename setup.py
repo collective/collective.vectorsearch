@@ -60,6 +60,8 @@ setup(
         "torch",
         "transformers",
         "sentence_transformers",
+        "accelerate",
+        "bitsandbytes",
     ],
     extras_require={
         "test": [
