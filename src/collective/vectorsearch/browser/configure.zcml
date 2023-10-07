@@ -18,4 +18,11 @@
       directory="static"
       />
 
+  <browser:page
+      name="vector-search"
+      for="plone.app.layout.navigation.interfaces.INavigationRoot"
+      class="Products.CMFPlone.browser.search.Search"
+      template="templates/vector-search.pt"
+      permission="zope2.View"
+      />
 </configure>
