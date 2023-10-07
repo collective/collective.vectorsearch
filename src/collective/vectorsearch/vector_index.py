@@ -23,25 +23,9 @@ from torch.nn.functional import cosine_similarity
 from sentence_transformers import SentenceTransformer
 
 from collective.vectorsearch.interfaces import IVectorIndex
+from collective.vectorsearch.embedding import SentenceTransformerEmbedding
 
 logger = getLogger("collective.vectorsearch")
-
-
-# model_name = "intfloat/multilingual-e5-large"
-model_name = "thenlper/gte-small"
-MODEL = SentenceTransformer(model_name)
-PREFIX_QUERY = "query: "
-
-
-CHUNK_SIZE = 500
-
-
-def get_embeddings(text: str, query=False) -> np.ndarray:
-    if query:
-        text = PREFIX_QUERY + text
-    texts = [text[i : i + CHUNK_SIZE] for i in range(0, len(text), CHUNK_SIZE)]
-    embeddings = MODEL.encode(texts)
-    return embeddings
 
 
 @implementer(IVectorIndex, IQueryIndex)
@@ -66,6 +50,13 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
         self._docvectors = IOBTree()
         self.length = Length()
         self.document_count = Length()
+
+        model_name = "thenlper/gte-small"  # TODO: Make it configurable
+        prefix_query = "query: "  # TODO: Make it configurable
+        model = SentenceTransformer(model_name)
+        self.embedding = SentenceTransformerEmbedding(
+            model, chank_size=500, prefix_query=prefix_query
+        )
 
     def _change_length(self, name, value):
         length_obj = getattr(self, name, None)
@@ -94,7 +85,7 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
             self._change_length("document_count", -1)
             old_row, old_col = old_vectors.shape
             self._change_length("length", -old_row)
-        vectors = get_embeddings(text)
+        vectors = self.embedding.embed(text)
         row, col = vectors.shape
         self._change_length("document_count", 1)
         self._change_length("length", row)
@@ -125,7 +116,7 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
         query_str = " ".join(record.keys)
         if not query_str:
             return None
-        query = get_embeddings(query_str, query=True)
+        query = self.embedding.embed(query_str, query=True)
         docids, vectors = self._get_all_doc_vectors()
         indices, scores = self._get_similarities(vectors, query)
         bucket = IIBucket()
