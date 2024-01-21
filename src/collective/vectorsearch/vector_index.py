@@ -18,12 +18,11 @@ except ImportError:
     SearchableText = None
 
 import numpy as np
-import torch
-from torch.nn.functional import cosine_similarity
 from sentence_transformers import SentenceTransformer
 
 from collective.vectorsearch.interfaces import IVectorIndex
 from collective.vectorsearch.embedding import SentenceTransformerEmbedding
+from collective.vectorsearch.similarity_algorithm import CosineSimilarityAlgorithm
 
 logger = getLogger("collective.vectorsearch")
 
@@ -57,6 +56,9 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
         self.embedding = SentenceTransformerEmbedding(
             model, chank_size=500, prefix_query=prefix_query
         )
+        self.similarity_algorithm = (
+            CosineSimilarityAlgorithm()
+        )  # TODO: Make it configurable
 
     def _change_length(self, name, value):
         length_obj = getattr(self, name, None)
@@ -118,7 +120,7 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
             return None
         query = self.embedding.embed(query_str, query=True)
         docids, vectors = self._get_all_doc_vectors()
-        indices, scores = self._get_similarities(vectors, query)
+        indices, scores = self.similarity_algorithm(vectors, query)
         bucket = IIBucket()
         for docid, score in zip(docids[indices], scores):
             int_docid = int(docid)
@@ -136,15 +138,6 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
         vectors = np.concatenate([v for k, v in items])
         docids = np.concatenate([[k] * v.shape[0] for k, v in items])
         return docids, vectors
-
-    def _get_similarities(self, vectors, query, k=10):
-        if vectors.shape[0] < k:
-            k = vectors.shape[0]
-        t_vectors = torch.tensor(vectors, dtype=torch.float32)
-        t_query = torch.tensor(query, dtype=torch.float32)
-        similarities = cosine_similarity(t_vectors, t_query)
-        top10_values, top10_indices = torch.topk(similarities, k)
-        return top10_indices.numpy(), top10_values.numpy()
 
     def getEntryForObject(self, documentId, default=None):
         logger.debug(
