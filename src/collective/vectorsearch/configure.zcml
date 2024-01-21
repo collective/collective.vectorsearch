@@ -4,10 +4,11 @@
     xmlns:genericsetup="http://namespaces.zope.org/genericsetup"
     xmlns:i18n="http://namespaces.zope.org/i18n"
     xmlns:plone="http://namespaces.plone.org/plone"
+    xmlns:browser="http://namespaces.zope.org/browser"
     i18n_domain="collective.vectorsearch">
 
   <i18n:registerTranslations directory="locales" />
-  <five:registerPackage package="." initialize=".initialize" />
+  <!-- five:registerPackage package="." initialize=".initialize" / -->
 
   <!--
     Be careful if you use general includeDependencies, it can have side effects!
@@ -42,6 +43,12 @@
       name="collective.vectorsearch-hiddenprofiles"
       />
 
-  <!-- -*- extra stuff goes here -*- -->
+  <five:registerClass
+      class=".vector_index.VectorIndex"
+      meta_type="VectorIndex"
+      addview="add-vector-index.html.html"
+      permission="cmf.ManagePortal"
+      global="False"
+    />
 
 </configure>
