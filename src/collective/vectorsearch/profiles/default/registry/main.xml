@@ -3,6 +3,13 @@
     xmlns:i18n="http://xml.zope.org/namespaces/i18n"
     i18n:domain="collective.vectorsearch">
 
-<!-- -*- extra stuff goes here -*- -->
+  <!-- Vector Search Settings -->
+  <records interface="collective.vectorsearch.interfaces.IVectorSearchSettings"
+           prefix="collective.vectorsearch">
+    <value key="embedding_model_name">thenlper/gte-small</value>
+    <value key="embedding_prefix_query">query: </value>
+    <value key="embedding_chunk_size">500</value>
+    <value key="similarity_algorithm">cosine</value>
+  </records>
 
 </registry>

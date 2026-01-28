@@ -46,7 +46,7 @@
   <five:registerClass
       class=".vector_index.VectorIndex"
       meta_type="VectorIndex"
-      addview="add-vector-index.html.html"
+      addview="add-vector-index.html"
       permission="cmf.ManagePortal"
       global="False"
     />

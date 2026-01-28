@@ -19,6 +19,7 @@ except ImportError:
 
 import numpy as np
 from sentence_transformers import SentenceTransformer
+from plone import api
 
 from collective.vectorsearch.interfaces import IVectorIndex
 from collective.vectorsearch.embedding import SentenceTransformerEmbedding
@@ -50,15 +51,74 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
         self.length = Length()
         self.document_count = Length()
 
-        model_name = "thenlper/gte-small"  # TODO: Make it configurable
-        prefix_query = "query: "  # TODO: Make it configurable
+        # Handle indexed_attrs from extra parameter
+        if extra is not None and isinstance(extra, dict):
+            indexed_attrs = extra.get('indexed_attrs', '')
+            if indexed_attrs:
+                if isinstance(indexed_attrs, str):
+                    self.indexed_attrs = [
+                        attr.strip() for attr in indexed_attrs.split(',')
+                    ]
+                else:
+                    self.indexed_attrs = indexed_attrs
+            else:
+                self.indexed_attrs = [self.id]
+        else:
+            self.indexed_attrs = [self.id]
+
+        # Get settings from registry with fallback defaults
+        settings = self._get_settings()
+
+        model_name = settings.get('embedding_model_name', 'thenlper/gte-small')
+        prefix_query = settings.get('embedding_prefix_query', 'query: ')
+        chunk_size = settings.get('embedding_chunk_size', 500)
+        similarity_algo = settings.get('similarity_algorithm', 'cosine')
+
+        # Initialize embedding
         model = SentenceTransformer(model_name)
         self.embedding = SentenceTransformerEmbedding(
-            model, chank_size=500, prefix_query=prefix_query
+            model, chank_size=chunk_size, prefix_query=prefix_query
         )
-        self.similarity_algorithm = (
-            CosineSimilarityAlgorithm()
-        )  # TODO: Make it configurable
+
+        # Initialize similarity algorithm
+        if similarity_algo == 'cosine':
+            self.similarity_algorithm = CosineSimilarityAlgorithm()
+        else:
+            # Default to cosine for now
+            self.similarity_algorithm = CosineSimilarityAlgorithm()
+
+    def _get_settings(self):
+        """Get settings from registry with error handling and fallback defaults."""
+        try:
+            registry = api.portal.get_registry_record
+            return {
+                'embedding_model_name': registry(
+                    'collective.vectorsearch.embedding_model_name',
+                    default='thenlper/gte-small'
+                ),
+                'embedding_prefix_query': registry(
+                    'collective.vectorsearch.embedding_prefix_query',
+                    default='query: '
+                ),
+                'embedding_chunk_size': registry(
+                    'collective.vectorsearch.embedding_chunk_size',
+                    default=500
+                ),
+                'similarity_algorithm': registry(
+                    'collective.vectorsearch.similarity_algorithm',
+                    default='cosine'
+                ),
+            }
+        except Exception as e:
+            logger.warning(
+                f"Could not read registry settings: {e}. Using defaults."
+            )
+            return {
+                'embedding_model_name': 'thenlper/gte-small',
+                'embedding_prefix_query': 'query: ',
+                'embedding_chunk_size': 500,
+                'similarity_algorithm': 'cosine',
+            }
 
     def _change_length(self, name, value):
         length_obj = getattr(self, name, None)

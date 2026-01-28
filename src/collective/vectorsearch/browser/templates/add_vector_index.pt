@@ -4,7 +4,9 @@
     tal:replace="structure context/manage_form_title|nothing">Form Title</h2>
 
 <p class="form-help">
-Add Vector Index
+Add a Vector Index to the catalog. The index will use the embedding model
+and similarity algorithm configured in the Vector Search control panel
+(Site Setup &gt; Vector Search).
 </p>
 
 <form action="." method="post"
@@ -17,18 +19,25 @@ Add Vector Index
     </div>
     </td>
     <td align="left" valign="top">
-    <input type="text" name="id" size="40" value="vector" />
+    <input type="text" name="id" size="40" value="vector" required="required" />
+    <div class="form-help" style="margin-top: 5px;">
+    The unique identifier for this index (e.g., "vector", "vector_index")
+    </div>
     </td>
   </tr>
 
   <tr>
     <td align="left" valign="top">
     <div class="form-label">
-    Model name
+    Indexed Attributes (optional)
     </div>
     </td>
     <td align="left" valign="top">
-    <input type="text" name="model_name" size="60" />
+    <input type="text" name="indexed_attrs" size="60" />
+    <div class="form-help" style="margin-top: 5px;">
+    Comma-separated list of attribute names to index (e.g., "title,description").<br/>
+    Leave empty to use the index ID as the attribute name.
+    </div>
     </td>
   </tr>
 

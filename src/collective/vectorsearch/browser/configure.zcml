@@ -19,6 +19,13 @@
       permission="cmf.ManagePortal"
     />
 
+  <!-- Control Panel -->
+  <browser:page
+      name="vectorsearch-settings"
+      for="Products.CMFPlone.interfaces.IPloneSiteRoot"
+      class=".controlpanel.VectorSearchControlPanel"
+      permission="cmf.ManagePortal"
+      />
 
   <!-- Publish static files -->
   <plone:static
