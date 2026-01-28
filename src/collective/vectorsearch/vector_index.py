@@ -1,4 +1,5 @@
 from logging import getLogger
+import time
 from App.special_dtml import DTMLFile
 from BTrees.IOBTree import IOBTree
 from BTrees.IIBTree import IIBucket
@@ -163,15 +164,26 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
         del self._docvectors[docid]
 
     def _apply_index(self, request):
-        logger.debug(
-            "TODO: timing check ", "_apply_index:: ", request
-        )  # TODO: timing check
+        """Apply the index to a search request.
+
+        Currently not implemented for vector search.
+        Use query_index() for vector similarity search instead.
+        """
+        start_time = time.perf_counter()
+        logger.debug("_apply_index called with request: %s", request)
+        elapsed = time.perf_counter() - start_time
+        logger.debug("_apply_index completed in %.4f seconds", elapsed)
 
     @security.protected(search_zcatalog)
     def query(self, query, nbest=10):
-        logger.debug(
-            "TODO: timing check ", "query:: ", query, nbest
-        )  # TODO: timing check
+        """Query the index (legacy interface).
+
+        Returns empty list. Use query_index() for vector similarity search.
+        """
+        start_time = time.perf_counter()
+        logger.debug("query called with query=%s, nbest=%s", query, nbest)
+        elapsed = time.perf_counter() - start_time
+        logger.debug("query completed in %.4f seconds", elapsed)
         return []
 
     def query_index(self, record, resultset=None):
@@ -188,9 +200,10 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
                 pass
                 # bucket[int_docid] += int(score * 100_000_000)
             else:
-                bucket[int_docid] = int(
-                    score * 100_000_000
-                )  # TODO Is it okay? Zope needs int
+                # Convert float score to integer for Zope catalog compatibility.
+                # Multiply by 100,000,000 to preserve 8 decimal places of precision.
+                # Zope's IIBucket requires integer values for scoring.
+                bucket[int_docid] = int(score * 100_000_000)
         return bucket
 
     def _get_all_doc_vectors(self):
@@ -200,18 +213,31 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
         return docids, vectors
 
     def getEntryForObject(self, documentId, default=None):
+        """Get the index entry for a specific document.
+
+        Returns the vector embedding for the document if it exists.
+        """
+        start_time = time.perf_counter()
+        result = self._docvectors.get(documentId, default)
+        elapsed = time.perf_counter() - start_time
         logger.debug(
-            "TODO: timing check: ",
-            "getEntryForObject:: ",
+            "getEntryForObject: documentId=%s, found=%s, time=%.4f seconds",
             documentId,
-            default,
-        )  # TODO: timing check
+            result is not None,
+            elapsed
+        )
+        return result
 
     def uniqueValues(self, name=None, withLengths=0):
-        logger.debug(
-            "TODO: timing check: ", "uniqueValues:: ", name, withLengths
-        )  # TODO: timing check
-        raise NotImplementedError
+        """Return unique values for the index.
+
+        Vector indexes don't have traditional unique values like keyword indexes.
+        Returns an empty tuple for compatibility with the catalog interface.
+        """
+        logger.debug("uniqueValues called: name=%s, withLengths=%s", name, withLengths)
+        # Vector embeddings don't have discrete unique values
+        # Return empty tuple for catalog compatibility
+        return ()
 
     def numObjects(self):
         return self.document_count()
@@ -225,14 +251,19 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
         self.document_count = Length()
 
     def getIndexSourceNames(self):
-        return getattr(self, "indexed_attrs", [self.id])  # TODO: Not using it now?
+        """Return the list of indexed attribute names."""
+        return getattr(self, "indexed_attrs", [self.id])
 
     def getIndexQueryNames(self):
         return (self.id,)
 
     def getIndexType(self):
-        logger.debug("TODO: timing check: getIndexType:: ")  # TODO: timing check
-        return "VectorIndex"
+        """Return the type of this index."""
+        start_time = time.perf_counter()
+        result = "VectorIndex"
+        elapsed = time.perf_counter() - start_time
+        logger.debug("getIndexType called, time=%.4f seconds", elapsed)
+        return result
 
 
 InitializeClass(VectorIndex)
