@@ -11,6 +11,22 @@
       layer="collective.vectorsearch.interfaces.ICollectiveVectorsearchLayer"
       />
 
+  <browser:page
+      for="zope.browser.interfaces.IAdding"
+      name="add-vector-index.html"
+      template="templates/add_vector_index.pt"
+      class=".add_vector_index.AddVectorIndexView"
+      permission="cmf.ManagePortal"
+    />
+
+  <!-- Control Panel -->
+  <browser:page
+      name="vectorsearch-settings"
+      for="Products.CMFPlone.interfaces.IPloneSiteRoot"
+      class=".controlpanel.VectorSearchControlPanel"
+      permission="cmf.ManagePortal"
+      />
+
   <!-- Publish static files -->
   <plone:static
       name="collective.vectorsearch"
@@ -25,4 +41,5 @@
       template="templates/vector-search.pt"
       permission="zope2.View"
       />
+
 </configure>

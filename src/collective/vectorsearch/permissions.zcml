@@ -1,7 +1,7 @@
 <configure
   xmlns="http://namespaces.zope.org/zope"
   xmlns:zcml="http://namespaces.zope.org/zcml"
-  i18n_domain="plone">
+  i18n_domain="collective.vectorsearch">
 
   <configure zcml:condition="installed AccessControl.security">
   <!-- -*- extra stuff goes here -*- -->

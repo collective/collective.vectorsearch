@@ -1,0 +1,58 @@
+<h1 tal:replace="structure context/manage_page_header|nothing">Header</h1>
+
+<h2 tal:define="form_title string:Add Vector Index"
+    tal:replace="structure context/manage_form_title|nothing">Form Title</h2>
+
+<p class="form-help">
+Add a Vector Index to the catalog. The index will use the embedding model
+and similarity algorithm configured in the Vector Search control panel
+(Site Setup &gt; Vector Search).
+</p>
+
+<form action="." method="post"
+   tal:attributes="action request/ACTUAL_URL">
+<table cellspacing="0" cellpadding="2" border="0">
+  <tr>
+    <td align="left" valign="top">
+    <div class="form-label">
+    Id
+    </div>
+    </td>
+    <td align="left" valign="top">
+    <input type="text" name="id" size="40" value="vector" required="required" />
+    <div class="form-help" style="margin-top: 5px;">
+    The unique identifier for this index (e.g., "vector", "vector_index")
+    </div>
+    </td>
+  </tr>
+
+  <tr>
+    <td align="left" valign="top">
+    <div class="form-label">
+    Indexed Attributes (optional)
+    </div>
+    </td>
+    <td align="left" valign="top">
+    <input type="text" name="indexed_attrs" size="60" />
+    <div class="form-help" style="margin-top: 5px;">
+    Comma-separated list of attribute names to index (e.g., "title,description").<br/>
+    Leave empty to use the index ID as the attribute name.
+    </div>
+    </td>
+  </tr>
+
+  <tr>
+    <td align="left" valign="top">
+    </td>
+    <td align="left" valign="top">
+    <div class="form-element">
+    <input class="form-element" type="submit" name="submit_add"
+     value=" Add " />
+    </div>
+    </td>
+  </tr>
+
+</table>
+</form>
+
+<h1 tal:replace="structure context/manage_page_footer|nothing">Footer</h1>
