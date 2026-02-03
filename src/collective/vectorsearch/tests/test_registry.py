@@ -80,7 +80,7 @@ class TestRegistrySettings(unittest.TestCase):
 
         # Verify it uses the registry settings
         # The embedding should have the default chunk size
-        self.assertEqual(index.embedding.chank_size, 500)
+        self.assertEqual(index.embedding.chunk_size, 500)
 
         # The similarity algorithm should be CosineSimilarityAlgorithm
         from collective.vectorsearch.similarity_algorithm import (
@@ -108,7 +108,7 @@ class TestRegistrySettings(unittest.TestCase):
         # Create a new index and verify it uses the new setting
         from collective.vectorsearch.vector_index import VectorIndex
         index = VectorIndex('test_index2')
-        self.assertEqual(index.embedding.chank_size, 1000)
+        self.assertEqual(index.embedding.chunk_size, 1000)
 
         # Reset to default for other tests
         api.portal.set_registry_record(

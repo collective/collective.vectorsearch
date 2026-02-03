@@ -108,7 +108,7 @@ class TestAddVectorIndexView(unittest.TestCase):
 
         # Verify it uses registry settings
         # The default chunk size should be 500
-        self.assertEqual(index.embedding.chank_size, 500)
+        self.assertEqual(index.embedding.chunk_size, 500)
 
         # The similarity algorithm should be CosineSimilarityAlgorithm
         from collective.vectorsearch.similarity_algorithm import (

@@ -11,6 +11,7 @@ from zope.interface import implementer
 from AccessControl.class_init import InitializeClass
 from AccessControl.SecurityInfo import ClassSecurityInfo
 from AccessControl.Permissions import search_zcatalog
+from Products.ZCatalog.ZCatalog import manage_zcatalog_indexes
 from Products.PluginIndexes.interfaces import IQueryIndex
 
 try:
@@ -27,6 +28,53 @@ from collective.vectorsearch.embedding import SentenceTransformerEmbedding
 from collective.vectorsearch.similarity_algorithm import CosineSimilarityAlgorithm
 
 logger = getLogger("collective.vectorsearch")
+
+
+class ModelCache:
+    """Singleton cache for SentenceTransformer models.
+
+    This prevents loading the same model multiple times into memory,
+    which can be very expensive (100MB+ per model).
+    """
+    _instance = None
+    _models = {}
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(ModelCache, cls).__new__(cls)
+        return cls._instance
+
+    def get_model(self, model_name):
+        """Get a cached model or load it if not already cached.
+
+        Args:
+            model_name: Name of the SentenceTransformer model
+
+        Returns:
+            SentenceTransformer model instance
+        """
+        if model_name not in self._models:
+            logger.info(f"Loading model '{model_name}' into cache")
+            self._models[model_name] = SentenceTransformer(model_name)
+        else:
+            logger.debug(f"Using cached model '{model_name}'")
+        return self._models[model_name]
+
+    def clear_cache(self):
+        """Clear all cached models. Useful for testing or memory management."""
+        logger.info("Clearing model cache")
+        self._models.clear()
+
+    def get_cache_info(self):
+        """Get information about cached models.
+
+        Returns:
+            dict: Model names and their memory status
+        """
+        return {
+            'cached_models': list(self._models.keys()),
+            'model_count': len(self._models)
+        }
 
 
 @implementer(IVectorIndex, IQueryIndex)
@@ -75,10 +123,11 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
         chunk_size = settings.get('embedding_chunk_size', 500)
         similarity_algo = settings.get('similarity_algorithm', 'cosine')
 
-        # Initialize embedding
-        model = SentenceTransformer(model_name)
+        # Initialize embedding using cached model
+        model_cache = ModelCache()
+        model = model_cache.get_model(model_name)
         self.embedding = SentenceTransformerEmbedding(
-            model, chank_size=chunk_size, prefix_query=prefix_query
+            model, chunk_size=chunk_size, prefix_query=prefix_query
         )
 
         # Initialize similarity algorithm
@@ -128,40 +177,68 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
         else:
             setattr(self, name, Length(value))
 
+    security.declareProtected(manage_zcatalog_indexes, 'index_object')
     def index_object(self, documentId, obj, threshold=None):
         count = 0
         if SearchableText is not None:
-            text = SearchableText(obj)
-            row = self.index_doc(documentId, text)
-            count += row
+            try:
+                text = SearchableText(obj)
+                row = self.index_doc(documentId, text)
+                count += row
+            except Exception as e:
+                logger.warning(
+                    "Failed to index SearchableText for document %s: %s",
+                    documentId, e
+                )
         fields = self.getIndexSourceNames()
         for field in fields:
-            value = getattr(obj, field, None)
-            if value is not None:
-                row = self.index_doc(documentId, value)
-                count += row
+            try:
+                value = getattr(obj, field, None)
+                if value is not None:
+                    row = self.index_doc(documentId, value)
+                    count += row
+            except Exception as e:
+                logger.warning(
+                    "Failed to index field '%s' for document %s: %s",
+                    field, documentId, e
+                )
         return count  # Number of vector rows
 
     def index_doc(self, docid, text):
+        # Skip empty or invalid text
+        if not text or not isinstance(text, str):
+            logger.debug("Skipping empty or invalid text for document %s", docid)
+            return 0
+
         old_vectors = self._docvectors.get(docid, None)
         if old_vectors is not None:
             self._change_length("document_count", -1)
             old_row, old_col = old_vectors.shape
             self._change_length("length", -old_row)
-        vectors = self.embedding.embed(text)
+
+        try:
+            vectors = self.embedding.embed(text)
+        except Exception as e:
+            logger.error("Failed to embed text for document %s: %s", docid, e)
+            return 0
+
         row, col = vectors.shape
         self._change_length("document_count", 1)
         self._change_length("length", row)
         self._docvectors[docid] = vectors
         return row
 
+    security.declareProtected(manage_zcatalog_indexes, 'unindex_object')
     def unindex_object(self, docid):
         old_vectors = self._docvectors.get(docid, None)
         if old_vectors is not None:
             self._change_length("document_count", -1)
             old_row, old_col = old_vectors.shape
             self._change_length("length", -old_row)
-        del self._docvectors[docid]
+            try:
+                del self._docvectors[docid]
+            except KeyError:
+                logger.warning("Document %s not found in index during unindexing", docid)
 
     def _apply_index(self, request):
         """Apply the index to a search request.
@@ -186,6 +263,7 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
         logger.debug("query completed in %.4f seconds", elapsed)
         return []
 
+    security.declareProtected(search_zcatalog, 'query_index')
     def query_index(self, record, resultset=None):
         query_str = " ".join(record.keys)
         if not query_str:
@@ -207,11 +285,15 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
         return bucket
 
     def _get_all_doc_vectors(self):
-        items = self._docvectors.items()
+        items = list(self._docvectors.items())
+        if not items:
+            # Return empty arrays if no documents are indexed
+            return np.array([], dtype=int), np.array([]).reshape(0, 0)
         vectors = np.concatenate([v for k, v in items])
         docids = np.concatenate([[k] * v.shape[0] for k, v in items])
         return docids, vectors
 
+    security.declareProtected(search_zcatalog, 'getEntryForObject')
     def getEntryForObject(self, documentId, default=None):
         """Get the index entry for a specific document.
 
@@ -228,6 +310,7 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
         )
         return result
 
+    security.declareProtected(search_zcatalog, 'uniqueValues')
     def uniqueValues(self, name=None, withLengths=0):
         """Return unique values for the index.
 
@@ -239,24 +322,30 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
         # Return empty tuple for catalog compatibility
         return ()
 
+    security.declareProtected(search_zcatalog, 'numObjects')
     def numObjects(self):
         return self.document_count()
 
+    security.declareProtected(search_zcatalog, 'indexSize')
     def indexSize(self):
         return self.length()
 
+    security.declareProtected(manage_zcatalog_indexes, 'clear')
     def clear(self):
         self._docvectors = IOBTree()
         self.length = Length()
         self.document_count = Length()
 
+    security.declareProtected(search_zcatalog, 'getIndexSourceNames')
     def getIndexSourceNames(self):
         """Return the list of indexed attribute names."""
         return getattr(self, "indexed_attrs", [self.id])
 
+    security.declareProtected(search_zcatalog, 'getIndexQueryNames')
     def getIndexQueryNames(self):
         return (self.id,)
 
+    security.declareProtected(search_zcatalog, 'getIndexType')
     def getIndexType(self):
         """Return the type of this index."""
         start_time = time.perf_counter()
@@ -267,11 +356,6 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
 
 
 InitializeClass(VectorIndex)
-manage_addVectorIndexForm = DTMLFile("dtml/addVectorIndex", globals())
 
 
-def manage_addVectorIndex(self, id, extra=None, REQUEST=None, RESPONSE=None, URL3=None):
-    """Add a vector index"""
-    return self.manage_addIndex(
-        id, "VectorIndex", extra=extra, REQUEST=REQUEST, RESPONSE=RESPONSE, URL1=URL3
-    )
+# Note: manage_addVectorIndex is now handled by AddVectorIndexView in browser/add_vector_index.py

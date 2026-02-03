@@ -20,12 +20,12 @@ class TestEmbeddingBase(unittest.TestCase):
         mock_model = Mock()
         embedding = EmbeddingBase(
             model=mock_model,
-            chank_size=100,
+            chunk_size=100,
             prefix_query="test: "
         )
 
         self.assertEqual(embedding.model, mock_model)
-        self.assertEqual(embedding.chank_size, 100)
+        self.assertEqual(embedding.chunk_size, 100)
         self.assertEqual(embedding.prefix_query, "test: ")
 
     def test_base_class_embed_not_implemented(self):
@@ -64,7 +64,7 @@ class TestSentenceTransformerEmbedding(unittest.TestCase):
 
         embedding = SentenceTransformerEmbedding(
             model=self.mock_model,
-            chank_size=500
+            chunk_size=500
         )
 
         result = embedding.embed("test text")
@@ -80,7 +80,7 @@ class TestSentenceTransformerEmbedding(unittest.TestCase):
 
         embedding = SentenceTransformerEmbedding(
             model=self.mock_model,
-            chank_size=500,
+            chunk_size=500,
             prefix_query="query: "
         )
 
@@ -97,7 +97,7 @@ class TestSentenceTransformerEmbedding(unittest.TestCase):
 
         embedding = SentenceTransformerEmbedding(
             model=self.mock_model,
-            chank_size=500,
+            chunk_size=500,
             prefix_query="query: "
         )
 
@@ -115,7 +115,7 @@ class TestSentenceTransformerEmbedding(unittest.TestCase):
 
         embedding = SentenceTransformerEmbedding(
             model=self.mock_model,
-            chank_size=10  # Small chunk size for testing
+            chunk_size=10  # Small chunk size for testing
         )
 
         # Create a text longer than chunk size
@@ -138,4 +138,4 @@ class TestSentenceTransformerEmbedding(unittest.TestCase):
         from collective.vectorsearch.embedding import SentenceTransformerEmbedding
 
         embedding = SentenceTransformerEmbedding(model=self.mock_model)
-        self.assertEqual(embedding.chank_size, 500)
+        self.assertEqual(embedding.chunk_size, 500)

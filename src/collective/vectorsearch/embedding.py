@@ -6,9 +6,9 @@ class EmbeddingBase:
 
     meta_type = None
 
-    def __init__(self, model, chank_size=500, prefix_query=None):
+    def __init__(self, model, chunk_size=500, prefix_query=None):
         self.model = model
-        self.chank_size = chank_size
+        self.chunk_size = chunk_size
         self.prefix_query = prefix_query
 
     def embed(self, text: str, query=False) -> np.ndarray:
@@ -24,7 +24,7 @@ class SentenceTransformerEmbedding(EmbeddingBase):
         if query:
             text = self.prefix_query + text
         texts = [
-            text[i : i + self.chank_size] for i in range(0, len(text), self.chank_size)
+            text[i : i + self.chunk_size] for i in range(0, len(text), self.chunk_size)
         ]
         embeddings = self.model.encode(texts)
         return embeddings
