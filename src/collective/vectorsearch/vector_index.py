@@ -23,9 +23,10 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 from plone import api
 
-from collective.vectorsearch.interfaces import IVectorIndex
+from collective.vectorsearch.interfaces import IVectorIndex, IEmbeddingModelProvider
 from collective.vectorsearch.embedding import SentenceTransformerEmbedding
 from collective.vectorsearch.similarity_algorithm import CosineSimilarityAlgorithm
+from zope.component import queryUtility
 
 logger = getLogger("collective.vectorsearch")
 
@@ -119,9 +120,6 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
         settings = self._get_settings()
 
         # NEW: Get model provider instead of just model name
-        from zope.component import queryUtility
-        from collective.vectorsearch.interfaces import IEmbeddingModelProvider
-
         model_id = settings.get('embedding_model', 'gte-small')
         prefix_query = settings.get('embedding_prefix_query', 'query: ')
         chunk_size = settings.get('embedding_chunk_size', 500)

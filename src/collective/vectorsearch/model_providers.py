@@ -3,6 +3,8 @@
 
 from zope.interface import implementer
 from collective.vectorsearch.interfaces import IEmbeddingModelProvider
+from collective.vectorsearch import embedding as emb_module
+from collective.vectorsearch.vector_index import ModelCache
 import logging
 
 logger = logging.getLogger('collective.vectorsearch')
@@ -26,14 +28,11 @@ class BaseEmbeddingModelProvider:
 
     def get_embedding_instance(self, chunk_size=500, prefix_query=None):
         """Factory method - creates appropriate embedding instance based on embedding_class."""
-        from collective.vectorsearch import embedding as emb_module
-
         # Get embedding class
         EmbeddingClass = getattr(emb_module, self.embedding_class)
 
         # Handle different initialization patterns
         if self.embedding_class == 'SentenceTransformerEmbedding':
-            from collective.vectorsearch.vector_index import ModelCache
             cache = ModelCache()
             model = cache.get_model(self.model_name)
             return EmbeddingClass(model, chunk_size=chunk_size, prefix_query=prefix_query)
