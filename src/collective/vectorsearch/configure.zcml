@@ -51,4 +51,30 @@
       global="False"
     />
 
+  <!-- Register embedding model providers -->
+  <utility
+      factory=".model_providers.GTESmallProvider"
+      provides=".interfaces.IEmbeddingModelProvider"
+      name="gte-small"
+  />
+
+  <utility
+      factory=".model_providers.E5BaseProvider"
+      provides=".interfaces.IEmbeddingModelProvider"
+      name="e5-base-multilingual"
+  />
+
+  <utility
+      factory=".model_providers.E5FastEmbedProvider"
+      provides=".interfaces.IEmbeddingModelProvider"
+      name="e5-base-multilingual-fastembed"
+  />
+
+  <!-- Register vocabulary factory -->
+  <utility
+      component=".vocabularies.EmbeddingModelsVocabularyFactory"
+      provides="zope.schema.interfaces.IVocabularyFactory"
+      name="collective.vectorsearch.embedding_models"
+  />
+
 </configure>

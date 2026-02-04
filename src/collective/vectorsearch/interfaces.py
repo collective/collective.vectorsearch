@@ -19,13 +19,11 @@ class IVectorIndex(Interface):
 class IVectorSearchSettings(Interface):
     """Vector Search configuration settings."""
 
-    embedding_model_name = schema.TextLine(
-        title=_(u"Embedding Model Name"),
-        description=_(
-            u"SentenceTransformer model name to use for embeddings "
-            u"(e.g., thenlper/gte-small, all-MiniLM-L6-v2)"
-        ),
-        default=u"thenlper/gte-small",
+    embedding_model = schema.Choice(
+        title=_(u"Embedding Model"),
+        description=_(u"Select the embedding model to use for vector search"),
+        vocabulary="collective.vectorsearch.embedding_models",
+        default=u"gte-small",
         required=True,
     )
 
@@ -58,3 +56,96 @@ class IVectorSearchSettings(Interface):
             # Future: Add more algorithms as they are implemented
         ]),
     )
+
+
+class IEmbeddingModelProvider(Interface):
+    """Marker interface for embedding model providers.
+
+    Named utilities implementing this interface will be available
+    for selection in the control panel.
+    """
+
+    id = schema.ASCIILine(
+        title=_(u"Model ID"),
+        description=_(u"Unique identifier for this embedding model"),
+        required=True,
+    )
+
+    title = schema.TextLine(
+        title=_(u"Display Title"),
+        description=_(u"Human-readable name shown in UI"),
+        required=True,
+    )
+
+    description = schema.Text(
+        title=_(u"Description"),
+        description=_(u"Description of this model and its use cases"),
+        required=False,
+    )
+
+    model_name = schema.TextLine(
+        title=_(u"Model Name"),
+        description=_(u"Internal model name (e.g., HuggingFace model ID)"),
+        required=True,
+    )
+
+    use_cache_dir = schema.Bool(
+        title=_(u"Use Cache Directory"),
+        description=_(u"Whether to cache model files for faster loading"),
+        default=False,
+        required=True,
+    )
+
+    vector_dimensions = schema.Int(
+        title=_(u"Vector Dimensions"),
+        description=_(u"Dimensionality of embedding vectors produced by this model"),
+        required=True,
+    )
+
+    hash_length = schema.Int(
+        title=_(u"Hash Length"),
+        description=_(u"Length of binary hash for ITQ quantization"),
+        default=128,
+        required=True,
+    )
+
+    itq_boundary_name = schema.TextLine(
+        title=_(u"ITQ Boundary Name"),
+        description=_(u"Name of pre-trained ITQ boundary vector (if available)"),
+        required=False,
+    )
+
+    available_similarity_methods = schema.List(
+        title=_(u"Available Similarity Methods"),
+        description=_(u"List of similarity calculation methods supported"),
+        value_type=schema.Choice(values=[u'cosine', u'itq_hamming', u'euclidean']),
+        required=True,
+    )
+
+    embedding_class = schema.ASCIILine(
+        title=_(u"Embedding Class"),
+        description=_(u"Name of embedding class to use (e.g., SentenceTransformerEmbedding, FastEmbedEmbedding)"),
+        default='SentenceTransformerEmbedding',
+        required=True,
+    )
+
+    def get_embedding_instance(chunk_size=500, prefix_query=None):
+        """Factory method to create an embedding instance.
+
+        Returns:
+            EmbeddingBase instance configured for this model
+        """
+
+    def get_itq_boundary():
+        """Load and return ITQ pre-trained boundary vector.
+
+        Returns:
+            numpy.ndarray or None if not available
+        """
+
+    def get_pivot_data():
+        """Load and return pre-prepared pivot calculation data.
+
+        Returns:
+            numpy.ndarray or None if not available
+        """
