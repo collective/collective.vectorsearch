@@ -12,6 +12,7 @@ class VectorSearchControlPanel(RegistryEditForm):
     schema_prefix = "collective.vectorsearch"
     label = _(u"Vector Search Settings")
     description = _(
-        u"Configure embedding models and similarity algorithms for vector search. "
+        u"Configure vector search parameters based on LSH cascade research. "
+        u"See field help text for implementation status and usage guidelines. "
         u"These settings apply to newly created indexes only."
     )

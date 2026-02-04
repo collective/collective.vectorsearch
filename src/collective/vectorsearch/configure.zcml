@@ -77,4 +77,17 @@
       name="collective.vectorsearch.embedding_models"
   />
 
+  <!-- Register new vocabulary factories for storage backends and algorithms -->
+  <utility
+      component=".vocabularies.StorageBackendsVocabularyFactory"
+      provides="zope.schema.interfaces.IVocabularyFactory"
+      name="collective.vectorsearch.storage_backends"
+  />
+
+  <utility
+      component=".vocabularies.ApproximationAlgorithmsVocabularyFactory"
+      provides="zope.schema.interfaces.IVocabularyFactory"
+      name="collective.vectorsearch.approximation_algorithms"
+  />
+
 </configure>

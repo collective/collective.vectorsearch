@@ -119,11 +119,10 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
         # Get settings from registry with fallback defaults
         settings = self._get_settings()
 
-        # NEW: Get model provider instead of just model name
+        # Get model provider instead of just model name
         model_id = settings.get('embedding_model', 'gte-small')
-        prefix_query = settings.get('embedding_prefix_query', 'query: ')
         chunk_size = settings.get('embedding_chunk_size', 500)
-        similarity_algo = settings.get('similarity_algorithm', 'cosine')
+        approx_algo = settings.get('approximation_algorithm', 'exhaustive_cosine')
 
         # Get model provider utility
         model_provider = queryUtility(IEmbeddingModelProvider, name=model_id)
@@ -136,59 +135,117 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
         # Store provider for later use
         self.model_provider = model_provider
 
+        # Get prefixes from model provider (not from settings)
+        prefix_query = getattr(model_provider, 'query_prefix', None)
+        prefix_passage = getattr(model_provider, 'passage_prefix', None)
+
         # Get embedding instance from provider
         self.embedding = model_provider.get_embedding_instance(
             chunk_size=chunk_size,
-            prefix_query=prefix_query
+            prefix_query=prefix_query,
+            prefix_passage=prefix_passage
         )
 
-        # Load ITQ data if available and needed (Phase 1: not implemented)
-        if similarity_algo == 'itq_hamming':
+        # Load ITQ data if available and needed (Phase 2: not implemented yet)
+        if approx_algo in ('itq_lsh_2stage', 'itq_lsh_3stage'):
             self.itq_boundary = model_provider.get_itq_boundary()
             self.pivot_data = model_provider.get_pivot_data()
         else:
             self.itq_boundary = None
             self.pivot_data = None
 
-        # Initialize similarity algorithm
-        if similarity_algo == 'cosine':
+        # Initialize similarity algorithm (Phase 1: only cosine implemented)
+        if approx_algo == 'exhaustive_cosine':
             self.similarity_algorithm = CosineSimilarityAlgorithm()
         else:
-            # Default to cosine for now
+            # Default to cosine for now (other algorithms not implemented)
             self.similarity_algorithm = CosineSimilarityAlgorithm()
 
     def _get_settings(self):
-        """Get settings from registry with error handling and fallback defaults."""
+        """Retrieve all configuration from registry."""
         try:
             registry = api.portal.get_registry_record
-            return {
+
+            settings = {
                 'embedding_model': registry(
                     'collective.vectorsearch.embedding_model',
                     default='gte-small'
-                ),
-                'embedding_prefix_query': registry(
-                    'collective.vectorsearch.embedding_prefix_query',
-                    default='query: '
                 ),
                 'embedding_chunk_size': registry(
                     'collective.vectorsearch.embedding_chunk_size',
                     default=500
                 ),
-                'similarity_algorithm': registry(
-                    'collective.vectorsearch.similarity_algorithm',
-                    default='cosine'
+                'storage_backend': registry(
+                    'collective.vectorsearch.storage_backend',
+                    default='btrees'
+                ),
+                'external_db_uri': registry(
+                    'collective.vectorsearch.external_db_uri',
+                    default=''
+                ),
+                'approximation_algorithm': registry(
+                    'collective.vectorsearch.approximation_algorithm',
+                    default='exhaustive_cosine'
+                ),
+                'stage1_retrieval_count': registry(
+                    'collective.vectorsearch.stage1_retrieval_count',
+                    default=None
+                ),
+                'stage2_retrieval_count': registry(
+                    'collective.vectorsearch.stage2_retrieval_count',
+                    default=None
+                ),
+                'stage3_retrieval_count': registry(
+                    'collective.vectorsearch.stage3_retrieval_count',
+                    default=None
+                ),
+                'pivot_threshold': registry(
+                    'collective.vectorsearch.pivot_threshold',
+                    default=20
                 ),
             }
+
+            # Log current implementation status
+            self._log_implementation_status(settings)
+
+            return settings
+
         except Exception as e:
+            logger.warning(f"Could not read registry: {e}")
+            return self._get_default_settings()
+
+    def _log_implementation_status(self, settings):
+        """Log warnings for features not yet implemented."""
+
+        # Storage backend implementation status
+        implemented_backends = ['btrees']
+        if settings['storage_backend'] not in implemented_backends:
             logger.warning(
-                f"Could not read registry settings: {e}. Using defaults."
+                f"Storage backend '{settings['storage_backend']}' is not yet implemented. "
+                f"Current implementation: {', '.join(implemented_backends)}"
             )
-            return {
-                'embedding_model': 'gte-small',
-                'embedding_prefix_query': 'query: ',
-                'embedding_chunk_size': 500,
-                'similarity_algorithm': 'cosine',
-            }
+
+        # Approximation algorithm implementation status
+        implemented_algorithms = ['exhaustive_cosine']
+        if settings['approximation_algorithm'] not in implemented_algorithms:
+            logger.warning(
+                f"Approximation algorithm '{settings['approximation_algorithm']}' is not yet implemented. "
+                f"Current implementation: {', '.join(implemented_algorithms)}"
+            )
+
+    def _get_default_settings(self):
+        """Fallback default settings."""
+        return {
+            'embedding_model': 'gte-small',
+            'embedding_chunk_size': 500,
+            'storage_backend': 'btrees',
+            'external_db_uri': '',
+            'approximation_algorithm': 'exhaustive_cosine',
+            'stage1_retrieval_count': None,
+            'stage2_retrieval_count': None,
+            'stage3_retrieval_count': None,
+            'pivot_threshold': 20,
+        }
 
     def _change_length(self, name, value):
         length_obj = getattr(self, name, None)
