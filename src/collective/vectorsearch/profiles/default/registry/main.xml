@@ -7,9 +7,11 @@
   <records interface="collective.vectorsearch.interfaces.IVectorSearchSettings"
            prefix="collective.vectorsearch">
     <value key="embedding_model">gte-small</value>
-    <value key="embedding_prefix_query">query: </value>
     <value key="embedding_chunk_size">500</value>
-    <value key="similarity_algorithm">cosine</value>
+    <value key="storage_backend">btrees</value>
+    <value key="external_db_uri"></value>
+    <value key="approximation_algorithm">exhaustive_cosine</value>
+    <value key="pivot_threshold">20</value>
   </records>
 
 </registry>

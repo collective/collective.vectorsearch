@@ -26,7 +26,7 @@ class BaseEmbeddingModelProvider:
     available_similarity_methods = ['cosine']
     embedding_class = 'SentenceTransformerEmbedding'  # Default
 
-    def get_embedding_instance(self, chunk_size=500, prefix_query=None):
+    def get_embedding_instance(self, chunk_size=500, prefix_query=None, prefix_passage=None):
         """Factory method - creates appropriate embedding instance based on embedding_class."""
         # Get embedding class
         EmbeddingClass = getattr(emb_module, self.embedding_class)
@@ -35,14 +35,20 @@ class BaseEmbeddingModelProvider:
         if self.embedding_class == 'SentenceTransformerEmbedding':
             cache = ModelCache()
             model = cache.get_model(self.model_name)
-            return EmbeddingClass(model, chunk_size=chunk_size, prefix_query=prefix_query)
+            return EmbeddingClass(
+                model,
+                chunk_size=chunk_size,
+                prefix_query=prefix_query,
+                prefix_passage=prefix_passage
+            )
 
         elif self.embedding_class == 'FastEmbedEmbedding':
             # FastEmbed doesn't use ModelCache (has its own caching)
             return EmbeddingClass(
                 self.model_name,
                 chunk_size=chunk_size,
-                prefix_query=prefix_query
+                prefix_query=prefix_query,
+                prefix_passage=prefix_passage
             )
 
         else:
@@ -68,6 +74,8 @@ class GTESmallProvider(BaseEmbeddingModelProvider):
     itq_boundary_name = 'gte_small_itq'
     available_similarity_methods = ['cosine']  # Phase 1ではcosineのみ
     embedding_class = 'SentenceTransformerEmbedding'
+    query_prefix = None  # GTE does not need prefix
+    passage_prefix = None
 
 
 class E5BaseProvider(BaseEmbeddingModelProvider):
@@ -81,6 +89,8 @@ class E5BaseProvider(BaseEmbeddingModelProvider):
     itq_boundary_name = 'e5_base_itq'
     available_similarity_methods = ['cosine']
     embedding_class = 'SentenceTransformerEmbedding'
+    query_prefix = u'query: '  # E5 requires query prefix
+    passage_prefix = u'passage: '  # E5 requires passage prefix
 
 
 class E5FastEmbedProvider(BaseEmbeddingModelProvider):
@@ -95,3 +105,5 @@ class E5FastEmbedProvider(BaseEmbeddingModelProvider):
     available_similarity_methods = ['cosine']
     embedding_class = 'FastEmbedEmbedding'
     use_cache_dir = True  # FastEmbed uses local model cache
+    query_prefix = u'query: '  # E5 requires query prefix
+    passage_prefix = u'passage: '  # E5 requires passage prefix

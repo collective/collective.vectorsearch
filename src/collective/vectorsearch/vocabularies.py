@@ -49,3 +49,67 @@ class EmbeddingModelsVocabulary:
 
 # Create singleton instance
 EmbeddingModelsVocabularyFactory = EmbeddingModelsVocabulary()
+
+
+@provider(IVocabularyFactory)
+class StorageBackendsVocabulary:
+    """Vocabulary for storage backend options."""
+
+    def __call__(self, context):
+        return SimpleVocabulary([
+            SimpleTerm(
+                value=u'btrees',
+                token=u'btrees',
+                title=u'BTrees (Internal)'
+            ),
+            SimpleTerm(
+                value=u'faiss',
+                token=u'faiss',
+                title=u'FAISS'
+            ),
+            SimpleTerm(
+                value=u'duckdb',
+                token=u'duckdb',
+                title=u'DuckDB'
+            ),
+            SimpleTerm(
+                value=u'annoy',
+                token=u'annoy',
+                title=u'Annoy'
+            ),
+        ])
+
+
+StorageBackendsVocabularyFactory = StorageBackendsVocabulary()
+
+
+@provider(IVocabularyFactory)
+class ApproximationAlgorithmsVocabulary:
+    """Vocabulary for approximation algorithm options."""
+
+    def __call__(self, context):
+        return SimpleVocabulary([
+            SimpleTerm(
+                value=u'exhaustive_cosine',
+                token=u'exhaustive_cosine',
+                title=u'Exhaustive Cosine Search'
+            ),
+            SimpleTerm(
+                value=u'hnsw',
+                token=u'hnsw',
+                title=u'HNSW'
+            ),
+            SimpleTerm(
+                value=u'itq_lsh_2stage',
+                token=u'itq_lsh_2stage',
+                title=u'ITQ LSH 2-stage'
+            ),
+            SimpleTerm(
+                value=u'itq_lsh_3stage',
+                token=u'itq_lsh_3stage',
+                title=u'ITQ LSH 3-stage'
+            ),
+        ])
+
+
+ApproximationAlgorithmsVocabularyFactory = ApproximationAlgorithmsVocabulary()
