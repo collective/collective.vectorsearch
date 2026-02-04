@@ -61,6 +61,7 @@ setup(
         "torch",
         "transformers",
         "sentence_transformers",
+        "fastembed>=0.2.0",
         "accelerate",
         "bitsandbytes",
     ],

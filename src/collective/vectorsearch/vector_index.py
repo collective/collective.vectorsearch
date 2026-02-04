@@ -23,9 +23,10 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 from plone import api
 
-from collective.vectorsearch.interfaces import IVectorIndex
+from collective.vectorsearch.interfaces import IVectorIndex, IEmbeddingModelProvider
 from collective.vectorsearch.embedding import SentenceTransformerEmbedding
 from collective.vectorsearch.similarity_algorithm import CosineSimilarityAlgorithm
+from zope.component import queryUtility
 
 logger = getLogger("collective.vectorsearch")
 
@@ -118,17 +119,36 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
         # Get settings from registry with fallback defaults
         settings = self._get_settings()
 
-        model_name = settings.get('embedding_model_name', 'thenlper/gte-small')
+        # NEW: Get model provider instead of just model name
+        model_id = settings.get('embedding_model', 'gte-small')
         prefix_query = settings.get('embedding_prefix_query', 'query: ')
         chunk_size = settings.get('embedding_chunk_size', 500)
         similarity_algo = settings.get('similarity_algorithm', 'cosine')
 
-        # Initialize embedding using cached model
-        model_cache = ModelCache()
-        model = model_cache.get_model(model_name)
-        self.embedding = SentenceTransformerEmbedding(
-            model, chunk_size=chunk_size, prefix_query=prefix_query
+        # Get model provider utility
+        model_provider = queryUtility(IEmbeddingModelProvider, name=model_id)
+
+        if model_provider is None:
+            # Fallback to default
+            logger.warning(f"Model provider '{model_id}' not found, using gte-small")
+            model_provider = queryUtility(IEmbeddingModelProvider, name='gte-small')
+
+        # Store provider for later use
+        self.model_provider = model_provider
+
+        # Get embedding instance from provider
+        self.embedding = model_provider.get_embedding_instance(
+            chunk_size=chunk_size,
+            prefix_query=prefix_query
         )
+
+        # Load ITQ data if available and needed (Phase 1: not implemented)
+        if similarity_algo == 'itq_hamming':
+            self.itq_boundary = model_provider.get_itq_boundary()
+            self.pivot_data = model_provider.get_pivot_data()
+        else:
+            self.itq_boundary = None
+            self.pivot_data = None
 
         # Initialize similarity algorithm
         if similarity_algo == 'cosine':
@@ -142,9 +162,9 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
         try:
             registry = api.portal.get_registry_record
             return {
-                'embedding_model_name': registry(
-                    'collective.vectorsearch.embedding_model_name',
-                    default='thenlper/gte-small'
+                'embedding_model': registry(
+                    'collective.vectorsearch.embedding_model',
+                    default='gte-small'
                 ),
                 'embedding_prefix_query': registry(
                     'collective.vectorsearch.embedding_prefix_query',
@@ -164,7 +184,7 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
                 f"Could not read registry settings: {e}. Using defaults."
             )
             return {
-                'embedding_model_name': 'thenlper/gte-small',
+                'embedding_model': 'gte-small',
                 'embedding_prefix_query': 'query: ',
                 'embedding_chunk_size': 500,
                 'similarity_algorithm': 'cosine',
