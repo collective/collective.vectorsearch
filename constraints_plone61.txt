@@ -1,0 +1,4 @@
+-c https://dist.plone.org/release/6.1-latest/constraints.txt
+
+tox==4.3.5
+ruff>=0.4.0

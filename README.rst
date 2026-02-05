@@ -40,13 +40,16 @@ Features
 --------
 
 - **VectorIndex for ZCatalog**: A custom catalog index that stores vector embeddings
-- **Multiple Embedding Models**: Support for various embedding models including:
+- **Multiple Embedding Models**: Support for various embedding models:
 
-  - GTE-small (default, lightweight)
-  - E5-base multilingual
-  - FastEmbed models
+  - MiniLM L6 v2 (default, lightweight, English, FastEmbed)
+  - E5-base multilingual (100+ languages, FastEmbed)
+  - E5-base multilingual GPU (GPU accelerated, requires ``[gpu]`` extras)
 
+- **FastEmbed by Default**: CPU-friendly ONNX-optimized embeddings, no GPU required
+- **Optional GPU Support**: Add ``[gpu]`` extras for GPU-accelerated processing
 - **Control Panel**: Configure embedding models and search settings via Site Setup
+- **Backend Status Display**: View available backends and installation status
 - **Lazy Model Loading**: Models are loaded on first use, not during package installation
 - **Pluggable Architecture**: Easy to add new embedding model providers
 
@@ -54,9 +57,8 @@ Features
 Requirements
 ------------
 
-- Plone 6.0 or later
-- Python 3.8 or later
-- PyTorch or FastEmbed (depending on the embedding model used)
+- Plone 6.0 or 6.1
+- Python 3.10 - 3.13
 
 
 Installation
@@ -74,9 +76,17 @@ Install collective.vectorsearch by adding it to your buildout::
 
 and then running ``bin/buildout``.
 
-Or install via pip::
+GPU Support (Optional)
+~~~~~~~~~~~~~~~~~~~~~~
 
-    pip install collective.vectorsearch
+For GPU-accelerated embedding with PyTorch and Sentence Transformers::
+
+    [buildout]
+
+    ...
+
+    eggs =
+        collective.vectorsearch [gpu]
 
 
 Quick Start
@@ -84,8 +94,9 @@ Quick Start
 
 1. Install the package via Site Setup → Add-ons
 2. Go to Site Setup → Vector Search to configure the embedding model
-3. The ``llm_vector`` index is automatically added to ``portal_catalog``
-4. Reindex your content via the control panel or ZMI
+3. Check the "Embedding Backend Status" section to verify backends are available
+4. The ``llm_vector`` index is automatically added to ``portal_catalog``
+5. Reindex your content via the control panel or ZMI
 
 
 Configuration
@@ -93,12 +104,31 @@ Configuration
 
 Access the control panel at Site Setup → Vector Search to configure:
 
-- **Embedding Model**: Select the model for generating embeddings
+- **Embedding Model**: Select the model for generating embeddings (only available models are shown)
 - **Text Chunk Size**: Maximum characters per chunk for long documents
 - **Storage Backend**: Currently supports BTrees (internal storage)
 - **Approximation Algorithm**: Search algorithm (currently exhaustive cosine similarity)
 
-Statistics about indexed documents and vectors are displayed in the control panel.
+The control panel displays:
+
+- **Embedding Backend Status**: Shows which backends are installed (FastEmbed, Sentence Transformers)
+- **Vector Index Statistics**: Document and vector counts for each index
+
+
+Available Embedding Models
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
++---------------------------+------------+------+------------------------+
+| Model                     | Dimensions | GPU  | Extras                 |
++===========================+============+======+========================+
+| MiniLM L6 v2 (FastEmbed)  | 384        | No   | (default)              |
++---------------------------+------------+------+------------------------+
+| E5 Base Multilingual      | 768        | No   | (default)              |
+| (FastEmbed)               |            |      |                        |
++---------------------------+------------+------+------------------------+
+| E5 Base Multilingual      | 768        | Yes  | ``[gpu]``              |
+| (GPU)                     |            |      |                        |
++---------------------------+------------+------+------------------------+
 
 
 Usage
@@ -126,6 +156,35 @@ You can add additional VectorIndex instances via ZMI:
 3. Enter an ID and optionally specify indexed attributes
 
 
+Extending with Custom Model Providers
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+External packages can add new embedding models by implementing ``IEmbeddingModelProvider``::
+
+    from collective.vectorsearch.model_providers import BaseEmbeddingModelProvider
+
+    class MyCustomProvider(BaseEmbeddingModelProvider):
+        id = 'my-custom-model'
+        title = u'My Custom Model'
+        description = u'Custom model description'
+        model_name = 'my-org/my-model'
+        vector_dimensions = 768
+
+        # Backend configuration
+        backend = 'fastembed'  # or 'sentence_transformers'
+        backend_name = u'FastEmbed (CPU/ONNX)'
+        requires_gpu = False
+        extras_name = None  # or 'gpu' for [gpu] extras
+
+Register it in your package's ``configure.zcml``::
+
+    <utility
+        factory=".providers.MyCustomProvider"
+        provides="collective.vectorsearch.interfaces.IEmbeddingModelProvider"
+        name="my-custom-model"
+    />
+
+
 Important Notes
 ---------------
 
@@ -151,12 +210,6 @@ The ``llm_vector`` index and all its embeddings will be permanently removed.
 
 If you need to preserve vector data while updating the package code, use the
 **Upgrade** feature instead of uninstall/reinstall.
-
-We are considering future improvements to address this limitation:
-
-- Export/import functionality for vector data
-- Confirmation dialog before uninstall
-- Separate "reinstall" profile that preserves catalog data
 
 
 Development

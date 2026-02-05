@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
 """Installer for the collective.vectorsearch package."""
 
-from setuptools import find_packages
-from setuptools import setup
-
+from setuptools import find_packages, setup
 
 long_description = "\n\n".join(
     [
@@ -24,12 +22,13 @@ setup(
         "Environment :: Web Environment",
         "Framework :: Plone",
         "Framework :: Plone :: Addon",
-        "Framework :: Plone :: 5.2",
         "Framework :: Plone :: 6.0",
+        "Framework :: Plone :: 6.1",
         "Programming Language :: Python",
-        "Programming Language :: Python :: 3.7",
-        "Programming Language :: Python :: 3.8",
-        "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
+        "Programming Language :: Python :: 3.13",
         "Operating System :: OS Independent",
         "License :: OSI Approved :: GNU General Public License v2 (GPLv2)",
     ],
@@ -49,21 +48,15 @@ setup(
     package_dir={"": "src"},
     include_package_data=True,
     zip_safe=False,
-    python_requires=">=3.7",
+    python_requires=">=3.10",
     install_requires=[
         "setuptools",
         # -*- Extra requirements: -*-
-        "z3c.jbot",
         "plone.api>=1.8.4",
         "plone.app.dexterity",
         "plone.app.registry",
         "numpy",
-        "torch",
-        "transformers",
-        "sentence_transformers",
         "fastembed>=0.2.0",
-        "accelerate",
-        "bitsandbytes",
     ],
     extras_require={
         "test": [
@@ -74,6 +67,13 @@ setup(
             "plone.testing>=5.0.0",
             "plone.app.contenttypes",
             "plone.app.robotframework[debug]",
+        ],
+        "gpu": [
+            # GPU/CUDA support with PyTorch and Sentence Transformers
+            "torch",
+            "sentence_transformers",
+            "transformers",
+            "accelerate",
         ],
     },
     entry_points="""

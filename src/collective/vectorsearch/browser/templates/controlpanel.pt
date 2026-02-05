@@ -23,6 +23,62 @@
         Status message
       </div>
 
+      <!-- Backend Availability Status -->
+      <section class="backend-status"
+               tal:define="backends view/form_instance/backend_info">
+        <h2 i18n:translate="">Embedding Backend Status</h2>
+
+        <table class="table">
+          <thead>
+            <tr>
+              <th i18n:translate="">Backend</th>
+              <th i18n:translate="">Status</th>
+              <th i18n:translate="">Extras</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr tal:repeat="backend backends">
+              <td tal:content="backend/name">Backend Name</td>
+              <td>
+                <tal:available tal:condition="backend/available">
+                  <span class="state-published" style="color: green; font-weight: bold;"
+                        i18n:translate="">Available</span>
+                </tal:available>
+                <tal:unavailable tal:condition="not:backend/available">
+                  <tal:required tal:condition="not:backend/extras_name">
+                    <span class="state-private" style="color: #c00; font-weight: bold;"
+                          i18n:translate="">Not Installed</span>
+                  </tal:required>
+                  <tal:optional tal:condition="backend/extras_name">
+                    <span class="state-private" style="color: #999;"
+                          i18n:translate="">Not Installed (Optional)</span>
+                  </tal:optional>
+                </tal:unavailable>
+              </td>
+              <td>
+                <tal:default tal:condition="not:backend/extras_name">
+                  <em i18n:translate="">(default)</em>
+                </tal:default>
+                <tal:extras tal:condition="backend/extras_name">
+                  <code>[<span tal:replace="backend/extras_name">gpu</span>]</code>
+                </tal:extras>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <tal:no-backend tal:condition="not:view/form_instance/has_available_backend">
+          <div class="portalMessage error" role="alert">
+            <strong i18n:translate="">Error:</strong>
+            <span i18n:translate="">
+              No embedding backend is available. Please reinstall collective.vectorsearch.
+            </span>
+          </div>
+        </tal:no-backend>
+      </section>
+
+      <hr />
+
       <!-- Warning for incompatible indexes -->
       <tal:incompatible tal:condition="view/form_instance/has_incompatible_indexes">
         <div class="portalMessage warning" role="status">

@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 """Registry settings tests for this package."""
+
+import unittest
+
+from plone import api
+
 from collective.vectorsearch.testing import (
     COLLECTIVE_VECTORSEARCH_INTEGRATION_TESTING,
 )
-from plone import api
-
-import unittest
 
 
 class TestRegistrySettings(unittest.TestCase):
@@ -19,64 +21,64 @@ class TestRegistrySettings(unittest.TestCase):
 
     def test_registry_records_exist(self):
         """Test that all registry records are created on install."""
-        # Test embedding_model_name
+        # Test embedding_model
         value = api.portal.get_registry_record(
-            'collective.vectorsearch.embedding_model_name'
-        )
-        self.assertIsNotNone(value)
-
-        # Test embedding_prefix_query
-        value = api.portal.get_registry_record(
-            'collective.vectorsearch.embedding_prefix_query'
+            "collective.vectorsearch.embedding_model"
         )
         self.assertIsNotNone(value)
 
         # Test embedding_chunk_size
         value = api.portal.get_registry_record(
-            'collective.vectorsearch.embedding_chunk_size'
+            "collective.vectorsearch.embedding_chunk_size"
         )
         self.assertIsNotNone(value)
 
-        # Test similarity_algorithm
+        # Test storage_backend
         value = api.portal.get_registry_record(
-            'collective.vectorsearch.similarity_algorithm'
+            "collective.vectorsearch.storage_backend"
         )
         self.assertIsNotNone(value)
 
-    def test_default_model_name(self):
-        """Test default embedding model name."""
+        # Test approximation_algorithm
         value = api.portal.get_registry_record(
-            'collective.vectorsearch.embedding_model_name'
+            "collective.vectorsearch.approximation_algorithm"
         )
-        self.assertEqual(value, 'thenlper/gte-small')
+        self.assertIsNotNone(value)
 
-    def test_default_prefix_query(self):
-        """Test default query prefix."""
+    def test_default_model(self):
+        """Test default embedding model."""
         value = api.portal.get_registry_record(
-            'collective.vectorsearch.embedding_prefix_query'
+            "collective.vectorsearch.embedding_model"
         )
-        self.assertEqual(value, 'query: ')
+        self.assertEqual(value, "all-minilm-l6")
 
     def test_default_chunk_size(self):
         """Test default chunk size."""
         value = api.portal.get_registry_record(
-            'collective.vectorsearch.embedding_chunk_size'
+            "collective.vectorsearch.embedding_chunk_size"
         )
         self.assertEqual(value, 500)
 
-    def test_default_similarity_algorithm(self):
-        """Test default similarity algorithm."""
+    def test_default_storage_backend(self):
+        """Test default storage backend."""
         value = api.portal.get_registry_record(
-            'collective.vectorsearch.similarity_algorithm'
+            "collective.vectorsearch.storage_backend"
         )
-        self.assertEqual(value, 'cosine')
+        self.assertEqual(value, "btrees")
+
+    def test_default_approximation_algorithm(self):
+        """Test default approximation algorithm."""
+        value = api.portal.get_registry_record(
+            "collective.vectorsearch.approximation_algorithm"
+        )
+        self.assertEqual(value, "exhaustive_cosine")
 
     def test_vector_index_reads_from_registry(self):
         """Test that VectorIndex uses registry settings."""
         from collective.vectorsearch.vector_index import VectorIndex
 
         # Create an index instance
-        index = VectorIndex('test_index')
+        index = VectorIndex("test_index")
 
         # Verify it uses the registry settings
         # The embedding should have the default chunk size
@@ -84,34 +86,31 @@ class TestRegistrySettings(unittest.TestCase):
 
         # The similarity algorithm should be CosineSimilarityAlgorithm
         from collective.vectorsearch.similarity_algorithm import (
-            CosineSimilarityAlgorithm
+            CosineSimilarityAlgorithm,
         )
-        self.assertIsInstance(
-            index.similarity_algorithm,
-            CosineSimilarityAlgorithm
-        )
+
+        self.assertIsInstance(index.similarity_algorithm, CosineSimilarityAlgorithm)
 
     def test_settings_can_be_changed(self):
         """Test that registry settings can be modified."""
         # Change a setting
         api.portal.set_registry_record(
-            'collective.vectorsearch.embedding_chunk_size',
-            1000
+            "collective.vectorsearch.embedding_chunk_size", 1000
         )
 
         # Verify the change
         value = api.portal.get_registry_record(
-            'collective.vectorsearch.embedding_chunk_size'
+            "collective.vectorsearch.embedding_chunk_size"
         )
         self.assertEqual(value, 1000)
 
         # Create a new index and verify it uses the new setting
         from collective.vectorsearch.vector_index import VectorIndex
-        index = VectorIndex('test_index2')
+
+        index = VectorIndex("test_index2")
         self.assertEqual(index.embedding.chunk_size, 1000)
 
         # Reset to default for other tests
         api.portal.set_registry_record(
-            'collective.vectorsearch.embedding_chunk_size',
-            500
+            "collective.vectorsearch.embedding_chunk_size", 500
         )

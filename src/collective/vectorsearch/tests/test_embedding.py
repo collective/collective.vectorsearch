@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """Embedding tests for this package."""
+
 import unittest
-import numpy as np
 from unittest.mock import Mock
+
+import numpy as np
 
 
 class TestEmbeddingBase(unittest.TestCase):
@@ -11,6 +13,7 @@ class TestEmbeddingBase(unittest.TestCase):
     def test_base_class_has_meta_type(self):
         """Test that base class has meta_type attribute."""
         from collective.vectorsearch.embedding import EmbeddingBase
+
         self.assertIsNone(EmbeddingBase.meta_type)
 
     def test_base_class_initialization(self):
@@ -19,9 +22,7 @@ class TestEmbeddingBase(unittest.TestCase):
 
         mock_model = Mock()
         embedding = EmbeddingBase(
-            model=mock_model,
-            chunk_size=100,
-            prefix_query="test: "
+            model=mock_model, chunk_size=100, prefix_query="test: "
         )
 
         self.assertEqual(embedding.model, mock_model)
@@ -46,26 +47,21 @@ class TestSentenceTransformerEmbedding(unittest.TestCase):
         """Create a mock model for testing."""
         self.mock_model = Mock()
         # Mock encode method to return a simple numpy array
-        self.mock_model.encode = Mock(
-            return_value=np.array([[0.1, 0.2, 0.3]])
-        )
+        self.mock_model.encode = Mock(return_value=np.array([[0.1, 0.2, 0.3]]))
 
     def test_meta_type(self):
         """Test that meta_type is set correctly."""
         from collective.vectorsearch.embedding import SentenceTransformerEmbedding
+
         self.assertEqual(
-            SentenceTransformerEmbedding.meta_type,
-            "SentenceTransformerEmbedding"
+            SentenceTransformerEmbedding.meta_type, "SentenceTransformerEmbedding"
         )
 
     def test_embed_simple_text(self):
         """Test embedding a simple text."""
         from collective.vectorsearch.embedding import SentenceTransformerEmbedding
 
-        embedding = SentenceTransformerEmbedding(
-            model=self.mock_model,
-            chunk_size=500
-        )
+        embedding = SentenceTransformerEmbedding(model=self.mock_model, chunk_size=500)
 
         result = embedding.embed("test text")
 
@@ -79,9 +75,7 @@ class TestSentenceTransformerEmbedding(unittest.TestCase):
         from collective.vectorsearch.embedding import SentenceTransformerEmbedding
 
         embedding = SentenceTransformerEmbedding(
-            model=self.mock_model,
-            chunk_size=500,
-            prefix_query="query: "
+            model=self.mock_model, chunk_size=500, prefix_query="query: "
         )
 
         embedding.embed("test text", query=True)
@@ -96,9 +90,7 @@ class TestSentenceTransformerEmbedding(unittest.TestCase):
         from collective.vectorsearch.embedding import SentenceTransformerEmbedding
 
         embedding = SentenceTransformerEmbedding(
-            model=self.mock_model,
-            chunk_size=500,
-            prefix_query="query: "
+            model=self.mock_model, chunk_size=500, prefix_query="query: "
         )
 
         embedding.embed("test text", query=False)
@@ -115,7 +107,7 @@ class TestSentenceTransformerEmbedding(unittest.TestCase):
 
         embedding = SentenceTransformerEmbedding(
             model=self.mock_model,
-            chunk_size=10  # Small chunk size for testing
+            chunk_size=10,  # Small chunk size for testing
         )
 
         # Create a text longer than chunk size

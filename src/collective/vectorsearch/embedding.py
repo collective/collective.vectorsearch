@@ -40,7 +40,9 @@ class FastEmbedEmbedding(EmbeddingBase):
 
     meta_type = "FastEmbedEmbedding"
 
-    def __init__(self, model_name, chunk_size=500, prefix_query=None, prefix_passage=None):
+    def __init__(
+        self, model_name, chunk_size=500, prefix_query=None, prefix_passage=None
+    ):
         """
         Initialize FastEmbed embedding.
 
@@ -52,11 +54,10 @@ class FastEmbedEmbedding(EmbeddingBase):
         """
         try:
             from fastembed import TextEmbedding
-        except ImportError:
+        except ImportError as err:
             raise ImportError(
-                "FastEmbed library not installed. "
-                "Install with: pip install fastembed"
-            )
+                "FastEmbed library not installed. Install with: pip install fastembed"
+            ) from err
 
         self.model = TextEmbedding(model_name=model_name)
         self.chunk_size = chunk_size
@@ -82,8 +83,7 @@ class FastEmbedEmbedding(EmbeddingBase):
 
         # Chunk text
         texts = [
-            text[i : i + self.chunk_size]
-            for i in range(0, len(text), self.chunk_size)
+            text[i : i + self.chunk_size] for i in range(0, len(text), self.chunk_size)
         ]
 
         # FastEmbed returns a generator, convert to list

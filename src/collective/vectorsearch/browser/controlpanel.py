@@ -1,20 +1,23 @@
 # -*- coding: utf-8 -*-
 """Control panel for Vector Search settings."""
-from plone.app.registry.browser.controlpanel import RegistryEditForm
-from plone.app.registry.browser.controlpanel import ControlPanelFormWrapper
+
+import logging
+
+from plone import api
+from plone.app.registry.browser.controlpanel import (
+    ControlPanelFormWrapper,
+    RegistryEditForm,
+)
 from plone.z3cform import layout
 from Products.Five.browser.pagetemplatefile import ViewPageTemplateFile
 from Products.statusmessages.interfaces import IStatusMessage
 from z3c.form import button
-from plone import api
 
-from collective.vectorsearch.interfaces import IVectorSearchSettings
-from collective.vectorsearch.interfaces import IVectorIndex
 from collective.vectorsearch import _
+from collective.vectorsearch.interfaces import IVectorIndex, IVectorSearchSettings
+from collective.vectorsearch.model_providers import get_backend_info
 
-import logging
-
-logger = logging.getLogger('collective.vectorsearch')
+logger = logging.getLogger("collective.vectorsearch")
 
 
 class VectorSearchControlPanelForm(RegistryEditForm):
@@ -22,26 +25,25 @@ class VectorSearchControlPanelForm(RegistryEditForm):
 
     schema = IVectorSearchSettings
     schema_prefix = "collective.vectorsearch"
-    label = _(u"Vector Search Settings")
+    label = _("Vector Search Settings")
     description = _(
-        u"Configure vector search parameters. "
-        u"Changing the embedding model will clear all existing vectors."
+        "Configure vector search parameters. "
+        "Changing the embedding model will clear all existing vectors."
     )
 
     def _get_current_model(self):
         """Get current embedding model from registry."""
         try:
             return api.portal.get_registry_record(
-                'collective.vectorsearch.embedding_model',
-                default='gte-small'
+                "collective.vectorsearch.embedding_model", default="all-minilm-l6"
             )
         except Exception:
-            return 'gte-small'
+            return "all-minilm-l6"
 
     def _get_vector_indexes(self):
         """Get all vector indexes from the catalog."""
         try:
-            catalog = api.portal.get_tool('portal_catalog')
+            catalog = api.portal.get_tool("portal_catalog")
             indexes = []
             for index_id in catalog.indexes():
                 index = catalog.Indexes.get(index_id)
@@ -93,7 +95,7 @@ class VectorSearchControlPanelForm(RegistryEditForm):
 
         if index_ids:
             try:
-                catalog = api.portal.get_tool('portal_catalog')
+                catalog = api.portal.get_tool("portal_catalog")
                 catalog.reindexIndex(index_ids, REQUEST=self.request)
                 logger.info(f"Triggered reindex for vector indexes: {index_ids}")
             except Exception as e:
@@ -112,27 +114,31 @@ class VectorSearchControlPanelForm(RegistryEditForm):
             try:
                 indexed_model = index.getIndexedModel()
                 doc_count = index.numObjects()
-                stats.append({
-                    'id': index_id,
-                    'document_count': doc_count,
-                    'vector_count': index.indexSize(),
-                    'indexed_model': indexed_model,
-                    'is_compatible': (
-                        doc_count == 0 or
-                        indexed_model is None or
-                        indexed_model == current_model
-                    ),
-                })
+                stats.append(
+                    {
+                        "id": index_id,
+                        "document_count": doc_count,
+                        "vector_count": index.indexSize(),
+                        "indexed_model": indexed_model,
+                        "is_compatible": (
+                            doc_count == 0
+                            or indexed_model is None
+                            or indexed_model == current_model
+                        ),
+                    }
+                )
             except Exception as e:
                 logger.warning(f"Could not get stats for {index_id}: {e}")
-                stats.append({
-                    'id': index_id,
-                    'document_count': 0,
-                    'vector_count': 0,
-                    'indexed_model': None,
-                    'is_compatible': True,
-                    'error': str(e),
-                })
+                stats.append(
+                    {
+                        "id": index_id,
+                        "document_count": 0,
+                        "vector_count": 0,
+                        "indexed_model": None,
+                        "is_compatible": True,
+                        "error": str(e),
+                    }
+                )
         return stats
 
     @property
@@ -153,14 +159,25 @@ class VectorSearchControlPanelForm(RegistryEditForm):
     @property
     def total_documents(self):
         """Total documents across all vector indexes."""
-        return sum(s['document_count'] for s in self.vector_index_stats)
+        return sum(s["document_count"] for s in self.vector_index_stats)
 
     @property
     def total_vectors(self):
         """Total vectors across all vector indexes."""
-        return sum(s['vector_count'] for s in self.vector_index_stats)
+        return sum(s["vector_count"] for s in self.vector_index_stats)
 
-    @button.buttonAndHandler(_(u"Save"), name="save")
+    @property
+    def backend_info(self):
+        """Get backend information from registered providers."""
+        return get_backend_info()
+
+    @property
+    def has_available_backend(self):
+        """Check if at least one backend is available."""
+        backends = get_backend_info()
+        return any(b["available"] for b in backends)
+
+    @button.buttonAndHandler(_("Save"), name="save")
     def handleSave(self, action):
         """Handle save."""
         data, errors = self.extractData()
@@ -169,34 +186,37 @@ class VectorSearchControlPanelForm(RegistryEditForm):
             return
 
         self.applyChanges(data)
-        IStatusMessage(self.request).addStatusMessage(
-            _(u"Changes saved."),
-            "info"
-        )
+        IStatusMessage(self.request).addStatusMessage(_("Changes saved."), "info")
 
         # Check for incompatible indexes after save
         incompatible = self._get_incompatible_indexes()
         if incompatible:
-            index_info = ", ".join([f"{idx[0]} (was: {idx[1]})" for idx in incompatible])
+            index_info = ", ".join(
+                [f"{idx[0]} (was: {idx[1]})" for idx in incompatible]
+            )
             IStatusMessage(self.request).addStatusMessage(
-                _(u"Warning: Some indexes have vectors created with a different model: ${indexes}. "
-                  u"Use 'Clear All Vectors' and then 'Reindex All' to update them.",
-                  mapping={'indexes': index_info}),
-                "warning"
+                _(
+                    "Warning: Some indexes have vectors created with a different model: ${indexes}. "
+                    "Use 'Clear All Vectors' and then 'Reindex All' to update them.",
+                    mapping={"indexes": index_info},
+                ),
+                "warning",
             )
 
         self.request.response.redirect(self.request.getURL())
 
-    @button.buttonAndHandler(_(u"Reindex All"), name="reindex")
+    @button.buttonAndHandler(_("Reindex All"), name="reindex")
     def handleReindex(self, action):
         """Handle reindex all vector indexes."""
         # Check for incompatible indexes first
         incompatible = self._get_incompatible_indexes()
         if incompatible:
             IStatusMessage(self.request).addStatusMessage(
-                _(u"Cannot reindex: Some indexes have vectors created with a different model. "
-                  u"Use 'Clear All Vectors' first to remove incompatible vectors."),
-                "error"
+                _(
+                    "Cannot reindex: Some indexes have vectors created with a different model. "
+                    "Use 'Clear All Vectors' first to remove incompatible vectors."
+                ),
+                "error",
             )
             self.request.response.redirect(self.request.getURL())
             return
@@ -205,59 +225,56 @@ class VectorSearchControlPanelForm(RegistryEditForm):
             count = self._reindex_all_vector_indexes()
             if count > 0:
                 IStatusMessage(self.request).addStatusMessage(
-                    _(u"Reindexing triggered for ${count} vector index(es). "
-                      u"This may take some time depending on the amount of content.",
-                      mapping={'count': count}),
-                    "info"
+                    _(
+                        "Reindexing triggered for ${count} vector index(es). "
+                        "This may take some time depending on the amount of content.",
+                        mapping={"count": count},
+                    ),
+                    "info",
                 )
             else:
                 IStatusMessage(self.request).addStatusMessage(
-                    _(u"No vector indexes found to reindex."),
-                    "warning"
+                    _("No vector indexes found to reindex."), "warning"
                 )
         except Exception as e:
             IStatusMessage(self.request).addStatusMessage(
-                _(u"Error during reindex: ${error}",
-                  mapping={'error': str(e)}),
-                "error"
+                _("Error during reindex: ${error}", mapping={"error": str(e)}), "error"
             )
         self.request.response.redirect(self.request.getURL())
 
-    @button.buttonAndHandler(_(u"Clear All Vectors"), name="clear")
+    @button.buttonAndHandler(_("Clear All Vectors"), name="clear")
     def handleClear(self, action):
         """Handle clear all vector indexes."""
         count = self._clear_all_vector_indexes()
         if count > 0:
             IStatusMessage(self.request).addStatusMessage(
-                _(u"${count} vector index(es) have been cleared. Please reindex your content.",
-                  mapping={'count': count}),
-                "warning"
+                _(
+                    "${count} vector index(es) have been cleared. Please reindex your content.",
+                    mapping={"count": count},
+                ),
+                "warning",
             )
         else:
             IStatusMessage(self.request).addStatusMessage(
-                _(u"No vector indexes found to clear."),
-                "warning"
+                _("No vector indexes found to clear."), "warning"
             )
         self.request.response.redirect(self.request.getURL())
 
-    @button.buttonAndHandler(_(u"Cancel"), name="cancel")
+    @button.buttonAndHandler(_("Cancel"), name="cancel")
     def handleCancel(self, action):
         """Handle cancel."""
-        IStatusMessage(self.request).addStatusMessage(
-            _(u"Changes canceled."),
-            "info"
-        )
+        IStatusMessage(self.request).addStatusMessage(_("Changes canceled."), "info")
         portal_url = api.portal.get().absolute_url()
         self.request.response.redirect(f"{portal_url}/@@overview-controlpanel")
 
 
 class VectorSearchControlPanelView(ControlPanelFormWrapper):
     """Custom wrapper with statistics display."""
+
     index = ViewPageTemplateFile("templates/controlpanel.pt")
 
 
 # Create the wrapped view
 VectorSearchControlPanel = layout.wrap_form(
-    VectorSearchControlPanelForm,
-    VectorSearchControlPanelView
+    VectorSearchControlPanelForm, VectorSearchControlPanelView
 )
