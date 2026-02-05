@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Upgrade steps for collective.vectorsearch."""
+
 from logging import getLogger
 
 logger = getLogger("collective.vectorsearch.upgrades")

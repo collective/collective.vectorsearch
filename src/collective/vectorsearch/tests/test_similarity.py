@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Similarity algorithm tests for this package."""
+
 import unittest
+
 import numpy as np
 
 
@@ -9,27 +11,21 @@ class TestSimilarityAlgorithmBase(unittest.TestCase):
 
     def test_default_size(self):
         """Test that default size is 10."""
-        from collective.vectorsearch.similarity_algorithm import (
-            SimilarityAlgorithmBase
-        )
+        from collective.vectorsearch.similarity_algorithm import SimilarityAlgorithmBase
 
         algorithm = SimilarityAlgorithmBase()
         self.assertEqual(algorithm.size, 10)
 
     def test_custom_size(self):
         """Test setting custom size."""
-        from collective.vectorsearch.similarity_algorithm import (
-            SimilarityAlgorithmBase
-        )
+        from collective.vectorsearch.similarity_algorithm import SimilarityAlgorithmBase
 
         algorithm = SimilarityAlgorithmBase(size=20)
         self.assertEqual(algorithm.size, 20)
 
     def test_call_method(self):
         """Test that __call__ delegates to query method."""
-        from collective.vectorsearch.similarity_algorithm import (
-            SimilarityAlgorithmBase
-        )
+        from collective.vectorsearch.similarity_algorithm import SimilarityAlgorithmBase
 
         algorithm = SimilarityAlgorithmBase()
         vectors = np.array([[1, 2, 3]])
@@ -41,9 +37,7 @@ class TestSimilarityAlgorithmBase(unittest.TestCase):
 
     def test_query_not_implemented(self):
         """Test that query method raises NotImplementedError."""
-        from collective.vectorsearch.similarity_algorithm import (
-            SimilarityAlgorithmBase
-        )
+        from collective.vectorsearch.similarity_algorithm import SimilarityAlgorithmBase
 
         algorithm = SimilarityAlgorithmBase()
         vectors = np.array([[1, 2, 3]])
@@ -59,7 +53,7 @@ class TestCosineSimilarityAlgorithm(unittest.TestCase):
     def test_identical_vectors(self):
         """Test similarity between identical vectors (should be 1.0)."""
         from collective.vectorsearch.similarity_algorithm import (
-            CosineSimilarityAlgorithm
+            CosineSimilarityAlgorithm,
         )
 
         algorithm = CosineSimilarityAlgorithm(size=1)
@@ -76,7 +70,7 @@ class TestCosineSimilarityAlgorithm(unittest.TestCase):
     def test_orthogonal_vectors(self):
         """Test similarity between orthogonal vectors (should be 0.0)."""
         from collective.vectorsearch.similarity_algorithm import (
-            CosineSimilarityAlgorithm
+            CosineSimilarityAlgorithm,
         )
 
         algorithm = CosineSimilarityAlgorithm(size=1)
@@ -93,18 +87,20 @@ class TestCosineSimilarityAlgorithm(unittest.TestCase):
     def test_top_k_selection(self):
         """Test that top-k vectors are selected correctly."""
         from collective.vectorsearch.similarity_algorithm import (
-            CosineSimilarityAlgorithm
+            CosineSimilarityAlgorithm,
         )
 
         algorithm = CosineSimilarityAlgorithm(size=3)
 
         # Create vectors with known similarities to query
-        vectors = np.array([
-            [1.0, 0.0, 0.0],  # Similar to query
-            [0.0, 1.0, 0.0],  # Orthogonal to query
-            [1.0, 1.0, 0.0],  # Somewhat similar
-            [2.0, 0.0, 0.0],  # Very similar to query
-        ])
+        vectors = np.array(
+            [
+                [1.0, 0.0, 0.0],  # Similar to query
+                [0.0, 1.0, 0.0],  # Orthogonal to query
+                [1.0, 1.0, 0.0],  # Somewhat similar
+                [2.0, 0.0, 0.0],  # Very similar to query
+            ]
+        )
         query = np.array([[1.0, 0.0, 0.0]])
 
         indices, scores = algorithm.query(vectors, query)
@@ -123,17 +119,19 @@ class TestCosineSimilarityAlgorithm(unittest.TestCase):
     def test_fewer_vectors_than_size(self):
         """Test behavior when there are fewer vectors than requested size."""
         from collective.vectorsearch.similarity_algorithm import (
-            CosineSimilarityAlgorithm
+            CosineSimilarityAlgorithm,
         )
 
         algorithm = CosineSimilarityAlgorithm(size=10)
 
         # Only 3 vectors
-        vectors = np.array([
-            [1.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0],
-            [0.0, 0.0, 1.0],
-        ])
+        vectors = np.array(
+            [
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.0, 1.0],
+            ]
+        )
         query = np.array([[1.0, 0.0, 0.0]])
 
         indices, scores = algorithm.query(vectors, query)
@@ -145,7 +143,7 @@ class TestCosineSimilarityAlgorithm(unittest.TestCase):
     def test_return_types(self):
         """Test that indices and scores are numpy arrays."""
         from collective.vectorsearch.similarity_algorithm import (
-            CosineSimilarityAlgorithm
+            CosineSimilarityAlgorithm,
         )
 
         algorithm = CosineSimilarityAlgorithm(size=2)
@@ -160,7 +158,7 @@ class TestCosineSimilarityAlgorithm(unittest.TestCase):
     def test_negative_similarity(self):
         """Test that opposite direction vectors have negative similarity."""
         from collective.vectorsearch.similarity_algorithm import (
-            CosineSimilarityAlgorithm
+            CosineSimilarityAlgorithm,
         )
 
         algorithm = CosineSimilarityAlgorithm(size=1)

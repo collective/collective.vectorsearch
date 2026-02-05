@@ -7,6 +7,7 @@ import numpy as np
 try:
     import torch
     from torch.nn.functional import cosine_similarity as torch_cosine_similarity
+
     HAS_TORCH = True
 except ImportError:
     HAS_TORCH = False

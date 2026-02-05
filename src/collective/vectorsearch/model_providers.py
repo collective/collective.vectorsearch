@@ -3,24 +3,26 @@
 
 import logging
 
-from zope.interface import implementer
 from zope.component import getUtilitiesFor
+from zope.interface import implementer
 
-from collective.vectorsearch.interfaces import IEmbeddingModelProvider
 from collective.vectorsearch import embedding as emb_module
+from collective.vectorsearch.interfaces import IEmbeddingModelProvider
 
-logger = logging.getLogger('collective.vectorsearch')
+logger = logging.getLogger("collective.vectorsearch")
 
 
 # Check for optional dependencies
 try:
     from fastembed import TextEmbedding  # noqa: F401
+
     HAS_FASTEMBED = True
 except ImportError:
     HAS_FASTEMBED = False
 
 try:
     from sentence_transformers import SentenceTransformer  # noqa: F401
+
     HAS_SENTENCE_TRANSFORMERS = True
 except ImportError:
     HAS_SENTENCE_TRANSFORMERS = False
@@ -59,14 +61,14 @@ class BaseEmbeddingModelProvider:
     vector_dimensions = None
     hash_length = 128
     itq_boundary_name = None
-    available_similarity_methods = ['cosine']
-    embedding_class = 'SentenceTransformerEmbedding'  # Default
+    available_similarity_methods = ["cosine"]
+    embedding_class = "SentenceTransformerEmbedding"  # Default
     query_prefix = None
     passage_prefix = None
 
     # Backend configuration
-    backend = 'sentence_transformers'  # 'fastembed' or 'sentence_transformers'
-    backend_name = u'Sentence Transformers'  # Human-readable name
+    backend = "sentence_transformers"  # 'fastembed' or 'sentence_transformers'
+    backend_name = "Sentence Transformers"  # Human-readable name
     requires_gpu = False  # True if GPU is required/recommended
     extras_name = None  # Buildout extras name (None = default, 'gpu' = [gpu])
 
@@ -77,9 +79,9 @@ class BaseEmbeddingModelProvider:
         Returns:
             bool: True if the required backend is available
         """
-        if cls.backend == 'fastembed':
+        if cls.backend == "fastembed":
             return HAS_FASTEMBED
-        elif cls.backend == 'sentence_transformers':
+        elif cls.backend == "sentence_transformers":
             return HAS_SENTENCE_TRANSFORMERS
         return False
 
@@ -104,7 +106,9 @@ class BaseEmbeddingModelProvider:
                 "Please reinstall collective.vectorsearch."
             )
 
-    def get_embedding_instance(self, chunk_size=500, prefix_query=None, prefix_passage=None):
+    def get_embedding_instance(
+        self, chunk_size=500, prefix_query=None, prefix_passage=None
+    ):
         """Factory method - creates appropriate embedding instance based on embedding_class."""
         # Check availability first
         if not self.is_available():
@@ -114,25 +118,26 @@ class BaseEmbeddingModelProvider:
         EmbeddingClass = getattr(emb_module, self.embedding_class)
 
         # Handle different initialization patterns
-        if self.embedding_class == 'SentenceTransformerEmbedding':
+        if self.embedding_class == "SentenceTransformerEmbedding":
             # Lazy import ModelCache to avoid requiring sentence_transformers
             from collective.vectorsearch.vector_index import ModelCache
+
             cache = ModelCache()
             model = cache.get_model(self.model_name)
             return EmbeddingClass(
                 model,
                 chunk_size=chunk_size,
                 prefix_query=prefix_query,
-                prefix_passage=prefix_passage
+                prefix_passage=prefix_passage,
             )
 
-        elif self.embedding_class == 'FastEmbedEmbedding':
+        elif self.embedding_class == "FastEmbedEmbedding":
             # FastEmbed doesn't use ModelCache (has its own caching)
             return EmbeddingClass(
                 self.model_name,
                 chunk_size=chunk_size,
                 prefix_query=prefix_query,
-                prefix_passage=prefix_passage
+                prefix_passage=prefix_passage,
             )
 
         else:
@@ -151,27 +156,30 @@ class BaseEmbeddingModelProvider:
 # Model Providers
 # =============================================================================
 
+
 class AllMiniLMProvider(BaseEmbeddingModelProvider):
     """Provider for all-MiniLM-L6-v2 with FastEmbed.
 
     Lightweight, fast model suitable for CPU-only environments.
     """
 
-    id = 'all-minilm-l6'
-    title = u'MiniLM L6 v2 (FastEmbed)'
-    description = u'Sentence Transformers MiniLM - 384 dimensions, ONNX optimized, fast, English'
-    model_name = 'sentence-transformers/all-MiniLM-L6-v2'
+    id = "all-minilm-l6"
+    title = "MiniLM L6 v2 (FastEmbed)"
+    description = (
+        "Sentence Transformers MiniLM - 384 dimensions, ONNX optimized, fast, English"
+    )
+    model_name = "sentence-transformers/all-MiniLM-L6-v2"
     vector_dimensions = 384
-    itq_boundary_name = 'minilm_itq'
-    available_similarity_methods = ['cosine']
-    embedding_class = 'FastEmbedEmbedding'
+    itq_boundary_name = "minilm_itq"
+    available_similarity_methods = ["cosine"]
+    embedding_class = "FastEmbedEmbedding"
     use_cache_dir = True
     query_prefix = None
     passage_prefix = None
 
     # Backend configuration
-    backend = 'fastembed'
-    backend_name = u'FastEmbed (CPU/ONNX)'
+    backend = "fastembed"
+    backend_name = "FastEmbed (CPU/ONNX)"
     requires_gpu = False
     extras_name = None  # Default installation
 
@@ -182,21 +190,23 @@ class E5BaseMultilingualProvider(BaseEmbeddingModelProvider):
     Multilingual model (100+ languages) with ONNX optimization for CPU.
     """
 
-    id = 'e5-base-multilingual'
-    title = u'E5 Base Multilingual (FastEmbed)'
-    description = u'E5 Base Multilingual - 768 dimensions, ONNX optimized, 100+ languages'
-    model_name = 'intfloat/multilingual-e5-base'
+    id = "e5-base-multilingual"
+    title = "E5 Base Multilingual (FastEmbed)"
+    description = (
+        "E5 Base Multilingual - 768 dimensions, ONNX optimized, 100+ languages"
+    )
+    model_name = "intfloat/multilingual-e5-base"
     vector_dimensions = 768
-    itq_boundary_name = 'e5_base_itq'
-    available_similarity_methods = ['cosine']
-    embedding_class = 'FastEmbedEmbedding'
+    itq_boundary_name = "e5_base_itq"
+    available_similarity_methods = ["cosine"]
+    embedding_class = "FastEmbedEmbedding"
     use_cache_dir = True
-    query_prefix = u'query: '
-    passage_prefix = u'passage: '
+    query_prefix = "query: "
+    passage_prefix = "passage: "
 
     # Backend configuration
-    backend = 'fastembed'
-    backend_name = u'FastEmbed (CPU/ONNX)'
+    backend = "fastembed"
+    backend_name = "FastEmbed (CPU/ONNX)"
     requires_gpu = False
     extras_name = None  # Default installation
 
@@ -208,27 +218,30 @@ class E5BaseMultilingualGPUProvider(BaseEmbeddingModelProvider):
     Requires the [gpu] extras to be installed.
     """
 
-    id = 'e5-base-multilingual-gpu'
-    title = u'E5 Base Multilingual (GPU)'
-    description = u'E5 Base Multilingual - 768 dimensions, GPU accelerated, 100+ languages'
-    model_name = 'intfloat/multilingual-e5-base'
+    id = "e5-base-multilingual-gpu"
+    title = "E5 Base Multilingual (GPU)"
+    description = (
+        "E5 Base Multilingual - 768 dimensions, GPU accelerated, 100+ languages"
+    )
+    model_name = "intfloat/multilingual-e5-base"
     vector_dimensions = 768
-    itq_boundary_name = 'e5_base_itq'
-    available_similarity_methods = ['cosine']
-    embedding_class = 'SentenceTransformerEmbedding'
-    query_prefix = u'query: '
-    passage_prefix = u'passage: '
+    itq_boundary_name = "e5_base_itq"
+    available_similarity_methods = ["cosine"]
+    embedding_class = "SentenceTransformerEmbedding"
+    query_prefix = "query: "
+    passage_prefix = "passage: "
 
     # Backend configuration
-    backend = 'sentence_transformers'
-    backend_name = u'Sentence Transformers (GPU)'
+    backend = "sentence_transformers"
+    backend_name = "Sentence Transformers (GPU)"
     requires_gpu = True
-    extras_name = 'gpu'
+    extras_name = "gpu"
 
 
 # =============================================================================
 # Utility functions
 # =============================================================================
+
 
 def get_available_providers():
     """Get list of all available provider classes."""
@@ -261,20 +274,20 @@ def get_backend_info():
     backends = {}
 
     # Collect unique backends from registered providers
-    for name, provider in getUtilitiesFor(IEmbeddingModelProvider):
+    for _name, provider in getUtilitiesFor(IEmbeddingModelProvider):
         backend_id = provider.backend
         if backend_id not in backends:
             backends[backend_id] = {
-                'id': backend_id,
-                'name': provider.backend_name,
-                'requires_gpu': provider.requires_gpu,
-                'extras_name': provider.extras_name,
-                'available': provider.is_available(),
+                "id": backend_id,
+                "name": provider.backend_name,
+                "requires_gpu": provider.requires_gpu,
+                "extras_name": provider.extras_name,
+                "available": provider.is_available(),
             }
 
     # Convert to list and sort (default first, then by extras_name)
     result = list(backends.values())
-    result.sort(key=lambda x: (x['extras_name'] or '', x['name']))
+    result.sort(key=lambda x: (x["extras_name"] or "", x["name"]))
 
     return result
 
@@ -289,14 +302,14 @@ def get_backend_status():
         dict: Backend availability status
     """
     return {
-        'fastembed': {
-            'available': HAS_FASTEMBED,
-            'name': 'FastEmbed (CPU/ONNX)',
-            'extras': '(default)',
+        "fastembed": {
+            "available": HAS_FASTEMBED,
+            "name": "FastEmbed (CPU/ONNX)",
+            "extras": "(default)",
         },
-        'sentence_transformers': {
-            'available': HAS_SENTENCE_TRANSFORMERS,
-            'name': 'Sentence Transformers (GPU)',
-            'extras': '[gpu]',
+        "sentence_transformers": {
+            "available": HAS_SENTENCE_TRANSFORMERS,
+            "name": "Sentence Transformers (GPU)",
+            "extras": "[gpu]",
         },
     }

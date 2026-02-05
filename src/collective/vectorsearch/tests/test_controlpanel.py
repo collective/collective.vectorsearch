@@ -1,13 +1,15 @@
 # -*- coding: utf-8 -*-
 """Control panel tests for this package."""
+
+import unittest
+
+from plone import api
+from plone.app.testing import TEST_USER_ID, setRoles
+from zope.component import getMultiAdapter
+
 from collective.vectorsearch.testing import (
     COLLECTIVE_VECTORSEARCH_INTEGRATION_TESTING,
 )
-from plone import api
-from plone.app.testing import setRoles, TEST_USER_ID
-from zope.component import getMultiAdapter
-
-import unittest
 
 
 class TestControlPanel(unittest.TestCase):
@@ -19,43 +21,42 @@ class TestControlPanel(unittest.TestCase):
         """Custom shared utility setup for tests."""
         self.portal = self.layer["portal"]
         self.request = self.layer["request"]
-        setRoles(self.portal, TEST_USER_ID, ['Manager'])
+        setRoles(self.portal, TEST_USER_ID, ["Manager"])
 
     def test_controlpanel_view_exists(self):
         """Test that control panel view is accessible."""
         view = getMultiAdapter(
-            (self.portal, self.request),
-            name="vectorsearch-settings"
+            (self.portal, self.request), name="vectorsearch-settings"
         )
         self.assertIsNotNone(view)
-        self.assertTrue(hasattr(view, 'schema'))
+        self.assertTrue(hasattr(view, "schema"))
 
     def test_controlpanel_registered(self):
         """Test control panel is registered in portal_controlpanel."""
-        cp = api.portal.get_tool('portal_controlpanel')
+        cp = api.portal.get_tool("portal_controlpanel")
         actions = [a.id for a in cp.listActions()]
-        self.assertIn('vectorsearch', actions)
+        self.assertIn("vectorsearch", actions)
 
     def test_controlpanel_view_protected(self):
         """Test that regular users cannot access control panel."""
         from AccessControl import Unauthorized
 
         # Set user as regular member
-        setRoles(self.portal, TEST_USER_ID, ['Member'])
+        setRoles(self.portal, TEST_USER_ID, ["Member"])
 
         # Attempt to access control panel should raise Unauthorized
         with self.assertRaises(Unauthorized):
-            self.portal.restrictedTraverse('@@vectorsearch-settings')
+            self.portal.restrictedTraverse("@@vectorsearch-settings")
 
     def test_controlpanel_settings_accessible(self):
         """Test that control panel can access settings."""
         view = getMultiAdapter(
-            (self.portal, self.request),
-            name="vectorsearch-settings"
+            (self.portal, self.request), name="vectorsearch-settings"
         )
 
         # Check that the view has access to the schema
         from collective.vectorsearch.interfaces import IVectorSearchSettings
+
         self.assertEqual(view.schema, IVectorSearchSettings)
 
 
@@ -71,6 +72,7 @@ class TestControlPanelUninstall(unittest.TestCase):
 
         try:
             from Products.CMFPlone.utils import get_installer
+
             self.installer = get_installer(self.portal, self.request)
         except ImportError:
             self.installer = api.portal.get_tool("portal_quickinstaller")
@@ -82,6 +84,6 @@ class TestControlPanelUninstall(unittest.TestCase):
 
     def test_controlpanel_removed(self):
         """Test that control panel configlet is removed."""
-        cp = api.portal.get_tool('portal_controlpanel')
+        cp = api.portal.get_tool("portal_controlpanel")
         actions = [a.id for a in cp.listActions()]
-        self.assertNotIn('vectorsearch', actions)
+        self.assertNotIn("vectorsearch", actions)

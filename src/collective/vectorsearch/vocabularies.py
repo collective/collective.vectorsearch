@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """Vocabularies for collective.vectorsearch."""
 
+from zope.component import getUtilitiesFor
 from zope.interface import provider
 from zope.schema.interfaces import IVocabularyFactory
-from zope.schema.vocabulary import SimpleVocabulary, SimpleTerm
-from zope.component import getUtilitiesFor
+from zope.schema.vocabulary import SimpleTerm, SimpleVocabulary
 
 from collective.vectorsearch.interfaces import IEmbeddingModelProvider
 
@@ -28,15 +28,18 @@ class EmbeddingModelsVocabulary:
         terms = []
 
         # Get all registered embedding model providers
-        for name, provider in getUtilitiesFor(IEmbeddingModelProvider):
+        for _name, model_provider in getUtilitiesFor(IEmbeddingModelProvider):
             # Only include available providers
-            if hasattr(provider, 'is_available') and not provider.is_available():
+            if (
+                hasattr(model_provider, "is_available")
+                and not model_provider.is_available()
+            ):
                 continue
 
             term = SimpleTerm(
-                value=provider.id,
-                token=provider.id,
-                title=provider.title
+                value=model_provider.id,
+                token=model_provider.id,
+                title=model_provider.title,
             )
             terms.append(term)
 
@@ -45,11 +48,13 @@ class EmbeddingModelsVocabulary:
 
         # Fallback if no providers are available
         if not terms:
-            terms.append(SimpleTerm(
-                value='all-minilm-l6',
-                token='all-minilm-l6',
-                title=u'MiniLM L6 v2 (unavailable - install fastembed)'
-            ))
+            terms.append(
+                SimpleTerm(
+                    value="all-minilm-l6",
+                    token="all-minilm-l6",
+                    title="MiniLM L6 v2 (unavailable - install fastembed)",
+                )
+            )
 
         return SimpleVocabulary(terms)
 
@@ -77,20 +82,19 @@ class AllEmbeddingModelsVocabulary:
         terms = []
 
         # Get all registered embedding model providers
-        for name, provider in getUtilitiesFor(IEmbeddingModelProvider):
+        for _name, model_provider in getUtilitiesFor(IEmbeddingModelProvider):
             is_available = (
-                not hasattr(provider, 'is_available') or provider.is_available()
+                not hasattr(model_provider, "is_available")
+                or model_provider.is_available()
             )
 
             if is_available:
-                title = provider.title
+                title = model_provider.title
             else:
-                title = u'{} (unavailable)'.format(provider.title)
+                title = "{} (unavailable)".format(model_provider.title)
 
             term = SimpleTerm(
-                value=provider.id,
-                token=provider.id,
-                title=title
+                value=model_provider.id, token=model_provider.id, title=title
             )
             terms.append(term)
 
@@ -109,28 +113,14 @@ class StorageBackendsVocabulary:
     """Vocabulary for storage backend options."""
 
     def __call__(self, context):
-        return SimpleVocabulary([
-            SimpleTerm(
-                value=u'btrees',
-                token=u'btrees',
-                title=u'BTrees (Internal)'
-            ),
-            SimpleTerm(
-                value=u'faiss',
-                token=u'faiss',
-                title=u'FAISS'
-            ),
-            SimpleTerm(
-                value=u'duckdb',
-                token=u'duckdb',
-                title=u'DuckDB'
-            ),
-            SimpleTerm(
-                value=u'annoy',
-                token=u'annoy',
-                title=u'Annoy'
-            ),
-        ])
+        return SimpleVocabulary(
+            [
+                SimpleTerm(value="btrees", token="btrees", title="BTrees (Internal)"),
+                SimpleTerm(value="faiss", token="faiss", title="FAISS"),
+                SimpleTerm(value="duckdb", token="duckdb", title="DuckDB"),
+                SimpleTerm(value="annoy", token="annoy", title="Annoy"),
+            ]
+        )
 
 
 StorageBackendsVocabularyFactory = StorageBackendsVocabulary()
@@ -141,28 +131,26 @@ class ApproximationAlgorithmsVocabulary:
     """Vocabulary for approximation algorithm options."""
 
     def __call__(self, context):
-        return SimpleVocabulary([
-            SimpleTerm(
-                value=u'exhaustive_cosine',
-                token=u'exhaustive_cosine',
-                title=u'Exhaustive Cosine Search'
-            ),
-            SimpleTerm(
-                value=u'hnsw',
-                token=u'hnsw',
-                title=u'HNSW'
-            ),
-            SimpleTerm(
-                value=u'itq_lsh_2stage',
-                token=u'itq_lsh_2stage',
-                title=u'ITQ LSH 2-stage'
-            ),
-            SimpleTerm(
-                value=u'itq_lsh_3stage',
-                token=u'itq_lsh_3stage',
-                title=u'ITQ LSH 3-stage'
-            ),
-        ])
+        return SimpleVocabulary(
+            [
+                SimpleTerm(
+                    value="exhaustive_cosine",
+                    token="exhaustive_cosine",
+                    title="Exhaustive Cosine Search",
+                ),
+                SimpleTerm(value="hnsw", token="hnsw", title="HNSW"),
+                SimpleTerm(
+                    value="itq_lsh_2stage",
+                    token="itq_lsh_2stage",
+                    title="ITQ LSH 2-stage",
+                ),
+                SimpleTerm(
+                    value="itq_lsh_3stage",
+                    token="itq_lsh_3stage",
+                    title="ITQ LSH 3-stage",
+                ),
+            ]
+        )
 
 
 ApproximationAlgorithmsVocabularyFactory = ApproximationAlgorithmsVocabulary()

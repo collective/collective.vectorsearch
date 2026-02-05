@@ -1,18 +1,19 @@
-from logging import getLogger
 import time
+from logging import getLogger
+
+from AccessControl.class_init import InitializeClass
+from AccessControl.Permissions import search_zcatalog
+from AccessControl.SecurityInfo import ClassSecurityInfo
+from Acquisition import Implicit
 from App.special_dtml import DTMLFile
-from BTrees.IOBTree import IOBTree
 from BTrees.IIBTree import IIBucket
+from BTrees.IOBTree import IOBTree
 from BTrees.Length import Length
 from OFS.SimpleItem import SimpleItem
-from Acquisition import Implicit
 from Persistence import Persistent
-from zope.interface import implementer
-from AccessControl.class_init import InitializeClass
-from AccessControl.SecurityInfo import ClassSecurityInfo
-from AccessControl.Permissions import search_zcatalog
-from Products.ZCatalog.ZCatalog import manage_zcatalog_indexes
 from Products.PluginIndexes.interfaces import IQueryIndex
+from Products.ZCatalog.ZCatalog import manage_zcatalog_indexes
+from zope.interface import implementer
 
 try:
     from plone.app.contenttypes.indexers import SearchableText
@@ -22,12 +23,13 @@ except ImportError:
 import numpy as np
 from plone import api
 
-from collective.vectorsearch.interfaces import IVectorIndex, IEmbeddingModelProvider
+from collective.vectorsearch.interfaces import IEmbeddingModelProvider, IVectorIndex
 from collective.vectorsearch.similarity_algorithm import CosineSimilarityAlgorithm
 
 # Optional: sentence_transformers for GPU support
 try:
     from sentence_transformers import SentenceTransformer
+
     HAS_SENTENCE_TRANSFORMERS = True
 except ImportError:
     SentenceTransformer = None
@@ -45,6 +47,7 @@ class ModelCache:
 
     Note: Requires the 'gpu' extras to be installed (sentence_transformers).
     """
+
     _instance = None
     _models = {}
 
@@ -90,8 +93,8 @@ class ModelCache:
             dict: Model names and their memory status
         """
         return {
-            'cached_models': list(self._models.keys()),
-            'model_count': len(self._models)
+            "cached_models": list(self._models.keys()),
+            "model_count": len(self._models),
         }
 
     @staticmethod
@@ -127,11 +130,11 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
 
         # Handle indexed_attrs from extra parameter
         if extra is not None and isinstance(extra, dict):
-            indexed_attrs = extra.get('indexed_attrs', '')
+            indexed_attrs = extra.get("indexed_attrs", "")
             if indexed_attrs:
                 if isinstance(indexed_attrs, str):
                     self.indexed_attrs = [
-                        attr.strip() for attr in indexed_attrs.split(',')
+                        attr.strip() for attr in indexed_attrs.split(",")
                     ]
                 else:
                     self.indexed_attrs = indexed_attrs
@@ -157,32 +160,34 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
             return
 
         settings = self._get_settings()
-        model_id = settings.get('embedding_model', 'all-minilm-l6')
-        chunk_size = settings.get('embedding_chunk_size', 500)
-        approx_algo = settings.get('approximation_algorithm', 'exhaustive_cosine')
+        model_id = settings.get("embedding_model", "all-minilm-l6")
+        chunk_size = settings.get("embedding_chunk_size", 500)
+        approx_algo = settings.get("approximation_algorithm", "exhaustive_cosine")
 
         # Get model provider utility
         model_provider = queryUtility(IEmbeddingModelProvider, name=model_id)
 
         if model_provider is None:
-            logger.warning(f"Model provider '{model_id}' not found, using all-minilm-l6")
-            model_provider = queryUtility(IEmbeddingModelProvider, name='all-minilm-l6')
+            logger.warning(
+                f"Model provider '{model_id}' not found, using all-minilm-l6"
+            )
+            model_provider = queryUtility(IEmbeddingModelProvider, name="all-minilm-l6")
 
         self._model_provider = model_provider
 
         # Get prefixes from model provider
-        prefix_query = getattr(model_provider, 'query_prefix', None)
-        prefix_passage = getattr(model_provider, 'passage_prefix', None)
+        prefix_query = getattr(model_provider, "query_prefix", None)
+        prefix_passage = getattr(model_provider, "passage_prefix", None)
 
         # Get embedding instance from provider
         self._embedding = model_provider.get_embedding_instance(
             chunk_size=chunk_size,
             prefix_query=prefix_query,
-            prefix_passage=prefix_passage
+            prefix_passage=prefix_passage,
         )
 
         # Load ITQ data if needed (Phase 2: not implemented yet)
-        if approx_algo in ('itq_lsh_2stage', 'itq_lsh_3stage'):
+        if approx_algo in ("itq_lsh_2stage", "itq_lsh_3stage"):
             self.itq_boundary = model_provider.get_itq_boundary()
             self.pivot_data = model_provider.get_pivot_data()
 
@@ -213,33 +218,27 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
             registry = api.portal.get_registry_record
 
             settings = {
-                'embedding_model': registry(
-                    'collective.vectorsearch.embedding_model',
-                    default='all-minilm-l6'
+                "embedding_model": registry(
+                    "collective.vectorsearch.embedding_model", default="all-minilm-l6"
                 ),
-                'embedding_chunk_size': registry(
-                    'collective.vectorsearch.embedding_chunk_size',
-                    default=500
+                "embedding_chunk_size": registry(
+                    "collective.vectorsearch.embedding_chunk_size", default=500
                 ),
-                'storage_backend': registry(
-                    'collective.vectorsearch.storage_backend',
-                    default='btrees'
+                "storage_backend": registry(
+                    "collective.vectorsearch.storage_backend", default="btrees"
                 ),
-                'external_db_uri': registry(
-                    'collective.vectorsearch.external_db_uri',
-                    default=''
+                "external_db_uri": registry(
+                    "collective.vectorsearch.external_db_uri", default=""
                 ),
-                'approximation_algorithm': registry(
-                    'collective.vectorsearch.approximation_algorithm',
-                    default='exhaustive_cosine'
+                "approximation_algorithm": registry(
+                    "collective.vectorsearch.approximation_algorithm",
+                    default="exhaustive_cosine",
                 ),
-                'pivot_threshold': registry(
-                    'collective.vectorsearch.pivot_threshold',
-                    default=20
+                "pivot_threshold": registry(
+                    "collective.vectorsearch.pivot_threshold", default=20
                 ),
-                'hamming_distance_threshold': registry(
-                    'collective.vectorsearch.hamming_distance_threshold',
-                    default=3
+                "hamming_distance_threshold": registry(
+                    "collective.vectorsearch.hamming_distance_threshold", default=3
                 ),
             }
 
@@ -256,16 +255,16 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
         """Log warnings for features not yet implemented."""
 
         # Storage backend implementation status
-        implemented_backends = ['btrees']
-        if settings['storage_backend'] not in implemented_backends:
+        implemented_backends = ["btrees"]
+        if settings["storage_backend"] not in implemented_backends:
             logger.warning(
                 f"Storage backend '{settings['storage_backend']}' is not yet implemented. "
                 f"Current implementation: {', '.join(implemented_backends)}"
             )
 
         # Approximation algorithm implementation status
-        implemented_algorithms = ['exhaustive_cosine']
-        if settings['approximation_algorithm'] not in implemented_algorithms:
+        implemented_algorithms = ["exhaustive_cosine"]
+        if settings["approximation_algorithm"] not in implemented_algorithms:
             logger.warning(
                 f"Approximation algorithm '{settings['approximation_algorithm']}' is not yet implemented. "
                 f"Current implementation: {', '.join(implemented_algorithms)}"
@@ -274,13 +273,13 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
     def _get_default_settings(self):
         """Fallback default settings."""
         return {
-            'embedding_model': 'all-minilm-l6',
-            'embedding_chunk_size': 500,
-            'storage_backend': 'btrees',
-            'external_db_uri': '',
-            'approximation_algorithm': 'exhaustive_cosine',
-            'pivot_threshold': 20,
-            'hamming_distance_threshold': 3,
+            "embedding_model": "all-minilm-l6",
+            "embedding_chunk_size": 500,
+            "storage_backend": "btrees",
+            "external_db_uri": "",
+            "approximation_algorithm": "exhaustive_cosine",
+            "pivot_threshold": 20,
+            "hamming_distance_threshold": 3,
         }
 
     def _change_length(self, name, value):
@@ -290,7 +289,8 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
         else:
             setattr(self, name, Length(value))
 
-    security.declareProtected(manage_zcatalog_indexes, 'index_object')
+    security.declareProtected(manage_zcatalog_indexes, "index_object")
+
     def index_object(self, documentId, obj, threshold=None):
         count = 0
         if SearchableText is not None:
@@ -300,8 +300,7 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
                 count += row
             except Exception as e:
                 logger.warning(
-                    "Failed to index SearchableText for document %s: %s",
-                    documentId, e
+                    "Failed to index SearchableText for document %s: %s", documentId, e
                 )
         fields = self.getIndexSourceNames()
         for field in fields:
@@ -313,7 +312,9 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
             except Exception as e:
                 logger.warning(
                     "Failed to index field '%s' for document %s: %s",
-                    field, documentId, e
+                    field,
+                    documentId,
+                    e,
                 )
         return count  # Number of vector rows
 
@@ -342,13 +343,14 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
 
         # Track which model was used (set on first index, or update if changed)
         settings = self._get_settings()
-        current_model = settings.get('embedding_model', 'all-minilm-l6')
-        if getattr(self, 'indexed_with_model', None) is None:
+        current_model = settings.get("embedding_model", "all-minilm-l6")
+        if getattr(self, "indexed_with_model", None) is None:
             self.indexed_with_model = current_model
 
         return row
 
-    security.declareProtected(manage_zcatalog_indexes, 'unindex_object')
+    security.declareProtected(manage_zcatalog_indexes, "unindex_object")
+
     def unindex_object(self, docid):
         old_vectors = self._docvectors.get(docid, None)
         if old_vectors is not None:
@@ -358,7 +360,9 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
             try:
                 del self._docvectors[docid]
             except KeyError:
-                logger.warning("Document %s not found in index during unindexing", docid)
+                logger.warning(
+                    "Document %s not found in index during unindexing", docid
+                )
 
     def _apply_index(self, request):
         """Apply the index to a search request.
@@ -383,7 +387,8 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
         logger.debug("query completed in %.4f seconds", elapsed)
         return []
 
-    security.declareProtected(search_zcatalog, 'query_index')
+    security.declareProtected(search_zcatalog, "query_index")
+
     def query_index(self, record, resultset=None):
         query_str = " ".join(record.keys)
         if not query_str:
@@ -413,7 +418,8 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
         docids = np.concatenate([[k] * v.shape[0] for k, v in items])
         return docids, vectors
 
-    security.declareProtected(search_zcatalog, 'getEntryForObject')
+    security.declareProtected(search_zcatalog, "getEntryForObject")
+
     def getEntryForObject(self, documentId, default=None):
         """Get the index entry for a specific document.
 
@@ -426,11 +432,12 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
             "getEntryForObject: documentId=%s, found=%s, time=%.4f seconds",
             documentId,
             result is not None,
-            elapsed
+            elapsed,
         )
         return result
 
-    security.declareProtected(search_zcatalog, 'uniqueValues')
+    security.declareProtected(search_zcatalog, "uniqueValues")
+
     def uniqueValues(self, name=None, withLengths=0):
         """Return unique values for the index.
 
@@ -442,40 +449,47 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
         # Return empty tuple for catalog compatibility
         return ()
 
-    security.declareProtected(search_zcatalog, 'numObjects')
+    security.declareProtected(search_zcatalog, "numObjects")
+
     def numObjects(self):
         return self.document_count()
 
-    security.declareProtected(search_zcatalog, 'indexSize')
+    security.declareProtected(search_zcatalog, "indexSize")
+
     def indexSize(self):
         return self.length()
 
-    security.declareProtected(manage_zcatalog_indexes, 'clear')
+    security.declareProtected(manage_zcatalog_indexes, "clear")
+
     def clear(self):
         self._docvectors = IOBTree()
         self.length = Length()
         self.document_count = Length()
         self.indexed_with_model = None
 
-    security.declareProtected(search_zcatalog, 'getIndexedModel')
+    security.declareProtected(search_zcatalog, "getIndexedModel")
+
     def getIndexedModel(self):
         """Return the model ID used to create the indexed vectors.
 
         Returns:
             str or None: Model ID if vectors exist, None if index is empty
         """
-        return getattr(self, 'indexed_with_model', None)
+        return getattr(self, "indexed_with_model", None)
 
-    security.declareProtected(search_zcatalog, 'getIndexSourceNames')
+    security.declareProtected(search_zcatalog, "getIndexSourceNames")
+
     def getIndexSourceNames(self):
         """Return the list of indexed attribute names."""
         return getattr(self, "indexed_attrs", [self.id])
 
-    security.declareProtected(search_zcatalog, 'getIndexQueryNames')
+    security.declareProtected(search_zcatalog, "getIndexQueryNames")
+
     def getIndexQueryNames(self):
         return (self.id,)
 
-    security.declareProtected(search_zcatalog, 'getIndexType')
+    security.declareProtected(search_zcatalog, "getIndexType")
+
     def getIndexType(self):
         """Return the type of this index."""
         start_time = time.perf_counter()

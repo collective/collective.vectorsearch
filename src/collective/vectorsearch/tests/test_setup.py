@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """Setup tests for this package."""
-from collective.vectorsearch.testing import (  # noqa: E501
-    COLLECTIVE_VECTORSEARCH_INTEGRATION_TESTING,
-)
-from plone import api
-from plone.app.testing import setRoles
-from plone.app.testing import TEST_USER_ID
 
 import unittest
 
+from plone import api
+from plone.app.testing import TEST_USER_ID, setRoles
+
+from collective.vectorsearch.testing import (  # noqa: E501
+    COLLECTIVE_VECTORSEARCH_INTEGRATION_TESTING,
+)
 
 try:
     from Products.CMFPlone.utils import get_installer
@@ -35,14 +35,14 @@ class TestSetup(unittest.TestCase):
 
     def test_browserlayer(self):
         """Test that ICollectiveVectorsearchLayer is registered."""
-        from collective.vectorsearch.interfaces import ICollectiveVectorsearchLayer
         from plone.browserlayer import utils
+
+        from collective.vectorsearch.interfaces import ICollectiveVectorsearchLayer
 
         self.assertIn(ICollectiveVectorsearchLayer, utils.registered_layers())
 
 
 class TestUninstall(unittest.TestCase):
-
     layer = COLLECTIVE_VECTORSEARCH_INTEGRATION_TESTING
 
     def setUp(self):
@@ -62,7 +62,8 @@ class TestUninstall(unittest.TestCase):
 
     def test_browserlayer_removed(self):
         """Test that ICollectiveVectorsearchLayer is removed."""
-        from collective.vectorsearch.interfaces import ICollectiveVectorsearchLayer
         from plone.browserlayer import utils
+
+        from collective.vectorsearch.interfaces import ICollectiveVectorsearchLayer
 
         self.assertNotIn(ICollectiveVectorsearchLayer, utils.registered_layers())
