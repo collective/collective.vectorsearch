@@ -100,6 +100,8 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
         self._docvectors = IOBTree()
         self.length = Length()
         self.document_count = Length()
+        # Track which model was used to create vectors (None = no vectors yet)
+        self.indexed_with_model = None
 
         # Handle indexed_attrs from extra parameter
         if extra is not None and isinstance(extra, dict):
@@ -116,10 +118,23 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
         else:
             self.indexed_attrs = [self.id]
 
-        # Get settings from registry with fallback defaults
-        settings = self._get_settings()
+        # Lazy initialization flags - model/embedding loaded on first use
+        self._embedding = None
+        self._model_provider = None
+        self._similarity_algorithm = None
+        self.itq_boundary = None
+        self.pivot_data = None
 
-        # Get model provider instead of just model name
+    def _ensure_initialized(self):
+        """Lazy initialization of embedding model and similarity algorithm.
+
+        This is called on first use (index_doc or query_index) to avoid
+        loading heavy ML models during Quickinstall.
+        """
+        if self._embedding is not None:
+            return
+
+        settings = self._get_settings()
         model_id = settings.get('embedding_model', 'gte-small')
         chunk_size = settings.get('embedding_chunk_size', 500)
         approx_algo = settings.get('approximation_algorithm', 'exhaustive_cosine')
@@ -128,38 +143,47 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
         model_provider = queryUtility(IEmbeddingModelProvider, name=model_id)
 
         if model_provider is None:
-            # Fallback to default
             logger.warning(f"Model provider '{model_id}' not found, using gte-small")
             model_provider = queryUtility(IEmbeddingModelProvider, name='gte-small')
 
-        # Store provider for later use
-        self.model_provider = model_provider
+        self._model_provider = model_provider
 
-        # Get prefixes from model provider (not from settings)
+        # Get prefixes from model provider
         prefix_query = getattr(model_provider, 'query_prefix', None)
         prefix_passage = getattr(model_provider, 'passage_prefix', None)
 
         # Get embedding instance from provider
-        self.embedding = model_provider.get_embedding_instance(
+        self._embedding = model_provider.get_embedding_instance(
             chunk_size=chunk_size,
             prefix_query=prefix_query,
             prefix_passage=prefix_passage
         )
 
-        # Load ITQ data if available and needed (Phase 2: not implemented yet)
+        # Load ITQ data if needed (Phase 2: not implemented yet)
         if approx_algo in ('itq_lsh_2stage', 'itq_lsh_3stage'):
             self.itq_boundary = model_provider.get_itq_boundary()
             self.pivot_data = model_provider.get_pivot_data()
-        else:
-            self.itq_boundary = None
-            self.pivot_data = None
 
-        # Initialize similarity algorithm (Phase 1: only cosine implemented)
-        if approx_algo == 'exhaustive_cosine':
-            self.similarity_algorithm = CosineSimilarityAlgorithm()
-        else:
-            # Default to cosine for now (other algorithms not implemented)
-            self.similarity_algorithm = CosineSimilarityAlgorithm()
+        # Initialize similarity algorithm
+        self._similarity_algorithm = CosineSimilarityAlgorithm()
+
+    @property
+    def embedding(self):
+        """Lazy-loaded embedding instance."""
+        self._ensure_initialized()
+        return self._embedding
+
+    @property
+    def model_provider(self):
+        """Lazy-loaded model provider."""
+        self._ensure_initialized()
+        return self._model_provider
+
+    @property
+    def similarity_algorithm(self):
+        """Lazy-loaded similarity algorithm."""
+        self._ensure_initialized()
+        return self._similarity_algorithm
 
     def _get_settings(self):
         """Retrieve all configuration from registry."""
@@ -187,21 +211,13 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
                     'collective.vectorsearch.approximation_algorithm',
                     default='exhaustive_cosine'
                 ),
-                'stage1_retrieval_count': registry(
-                    'collective.vectorsearch.stage1_retrieval_count',
-                    default=None
-                ),
-                'stage2_retrieval_count': registry(
-                    'collective.vectorsearch.stage2_retrieval_count',
-                    default=None
-                ),
-                'stage3_retrieval_count': registry(
-                    'collective.vectorsearch.stage3_retrieval_count',
-                    default=None
-                ),
                 'pivot_threshold': registry(
                     'collective.vectorsearch.pivot_threshold',
                     default=20
+                ),
+                'hamming_distance_threshold': registry(
+                    'collective.vectorsearch.hamming_distance_threshold',
+                    default=3
                 ),
             }
 
@@ -241,10 +257,8 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
             'storage_backend': 'btrees',
             'external_db_uri': '',
             'approximation_algorithm': 'exhaustive_cosine',
-            'stage1_retrieval_count': None,
-            'stage2_retrieval_count': None,
-            'stage3_retrieval_count': None,
             'pivot_threshold': 20,
+            'hamming_distance_threshold': 3,
         }
 
     def _change_length(self, name, value):
@@ -303,6 +317,13 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
         self._change_length("document_count", 1)
         self._change_length("length", row)
         self._docvectors[docid] = vectors
+
+        # Track which model was used (set on first index, or update if changed)
+        settings = self._get_settings()
+        current_model = settings.get('embedding_model', 'gte-small')
+        if getattr(self, 'indexed_with_model', None) is None:
+            self.indexed_with_model = current_model
+
         return row
 
     security.declareProtected(manage_zcatalog_indexes, 'unindex_object')
@@ -412,6 +433,16 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
         self._docvectors = IOBTree()
         self.length = Length()
         self.document_count = Length()
+        self.indexed_with_model = None
+
+    security.declareProtected(search_zcatalog, 'getIndexedModel')
+    def getIndexedModel(self):
+        """Return the model ID used to create the indexed vectors.
+
+        Returns:
+            str or None: Model ID if vectors exist, None if index is empty
+        """
+        return getattr(self, 'indexed_with_model', None)
 
     security.declareProtected(search_zcatalog, 'getIndexSourceNames')
     def getIndexSourceNames(self):

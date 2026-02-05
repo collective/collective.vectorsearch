@@ -43,6 +43,17 @@
       name="collective.vectorsearch-hiddenprofiles"
       />
 
+  <!-- Upgrade steps -->
+  <genericsetup:upgradeSteps
+      source="*"
+      destination="1001"
+      profile="collective.vectorsearch:default">
+    <genericsetup:upgradeStep
+        title="Initial upgrade step for version tracking"
+        handler=".upgrades.upgrade_to_1001"
+    />
+  </genericsetup:upgradeSteps>
+
   <five:registerClass
       class=".vector_index.VectorIndex"
       meta_type="VectorIndex"

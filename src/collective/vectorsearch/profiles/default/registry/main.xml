@@ -5,13 +5,15 @@
 
   <!-- Vector Search Settings -->
   <records interface="collective.vectorsearch.interfaces.IVectorSearchSettings"
-           prefix="collective.vectorsearch">
+           prefix="collective.vectorsearch"
+           purge="false">
     <value key="embedding_model">gte-small</value>
     <value key="embedding_chunk_size">500</value>
     <value key="storage_backend">btrees</value>
     <value key="external_db_uri"></value>
     <value key="approximation_algorithm">exhaustive_cosine</value>
     <value key="pivot_threshold">20</value>
+    <value key="hamming_distance_threshold">3</value>
   </records>
 
 </registry>
