@@ -1,0 +1,143 @@
+<html xmlns="http://www.w3.org/1999/xhtml"
+      xmlns:i18n="http://xml.zope.org/namespaces/i18n"
+      xmlns:metal="http://xml.zope.org/namespaces/metal"
+      xmlns:tal="http://xml.zope.org/namespaces/tal"
+      lang="en"
+      metal:use-macro="context/@@prefs_main_template/macros/master"
+      xml:lang="en"
+      i18n:domain="collective.vectorsearch">
+
+  <body>
+    <metal:main metal:fill-slot="prefs_configlet_main">
+      <h1 class="documentFirstHeading"
+          tal:content="view/form_instance/label">
+        Vector Search Settings
+      </h1>
+
+      <p class="lead"
+         tal:content="view/form_instance/description">
+        Description
+      </p>
+
+      <div metal:use-macro="context/@@global_statusmessage/macros/portal_message">
+        Status message
+      </div>
+
+      <!-- Warning for incompatible indexes -->
+      <tal:incompatible tal:condition="view/form_instance/has_incompatible_indexes">
+        <div class="portalMessage warning" role="status">
+          <strong i18n:translate="">Warning:</strong>
+          <span i18n:translate="">
+            Some vector indexes contain vectors created with a different embedding model.
+            These vectors are incompatible with the current model setting.
+            Use "Clear All Vectors" followed by "Reindex All" to update them.
+          </span>
+        </div>
+      </tal:incompatible>
+
+      <!-- Vector Index Statistics Section -->
+      <section class="vector-statistics"
+               tal:define="stats view/form_instance/vector_index_stats;
+                           current_model view/form_instance/_get_current_model">
+
+        <h2 i18n:translate="">Vector Index Statistics</h2>
+
+        <p class="discreet">
+          <strong i18n:translate="">Current Model:</strong>
+          <code tal:content="current_model">gte-small</code>
+        </p>
+
+        <tal:has-stats tal:condition="stats">
+          <table class="table table-striped">
+            <thead>
+              <tr>
+                <th i18n:translate="">Index Name</th>
+                <th i18n:translate="">Documents</th>
+                <th i18n:translate="">Vectors</th>
+                <th i18n:translate="">Indexed With</th>
+                <th i18n:translate="">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr tal:repeat="stat stats">
+                <td tal:content="stat/id">Index ID</td>
+                <td tal:content="stat/document_count">0</td>
+                <td tal:content="stat/vector_count">0</td>
+                <td>
+                  <tal:has-model tal:condition="stat/indexed_model">
+                    <code tal:content="stat/indexed_model">model</code>
+                  </tal:has-model>
+                  <tal:no-model tal:condition="not:stat/indexed_model">
+                    <em i18n:translate="">(empty)</em>
+                  </tal:no-model>
+                </td>
+                <td>
+                  <tal:compatible tal:condition="stat/is_compatible">
+                    <span class="state-published" i18n:translate="">OK</span>
+                  </tal:compatible>
+                  <tal:incompatible tal:condition="not:stat/is_compatible">
+                    <span class="state-private" style="color: #c00; font-weight: bold;"
+                          i18n:translate="">Incompatible</span>
+                  </tal:incompatible>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+
+          <p class="discreet">
+            <strong i18n:translate="">Total:</strong>
+            <span tal:content="view/form_instance/total_indexes">0</span>
+            <span i18n:translate="">index(es),</span>
+            <span tal:content="view/form_instance/total_documents">0</span>
+            <span i18n:translate="">documents,</span>
+            <span tal:content="view/form_instance/total_vectors">0</span>
+            <span i18n:translate="">vectors</span>
+          </p>
+        </tal:has-stats>
+
+        <tal:no-stats tal:condition="not:stats">
+          <p class="discreet" i18n:translate="">
+            No vector indexes found. Add a VectorIndex to portal_catalog to start indexing.
+          </p>
+        </tal:no-stats>
+
+      </section>
+
+      <hr />
+
+      <!-- Settings Form -->
+      <div id="content-core">
+        <tal:form tal:replace="structure view/contents">
+          Form content
+        </tal:form>
+      </div>
+
+      <!-- JavaScript for confirmation dialog on Clear button -->
+      <script type="text/javascript">
+        (function() {
+          'use strict';
+
+          document.addEventListener('DOMContentLoaded', function() {
+            // Confirmation for Clear All button
+            var clearButton = document.querySelector('[name="form.buttons.clear"]');
+            if (clearButton) {
+              clearButton.addEventListener('click', function(e) {
+                var message =
+                  'WARNING: This will clear ALL vector data from ALL indexes.\n\n' +
+                  'You will need to reindex all content after this operation.\n\n' +
+                  'Are you sure you want to continue?';
+
+                if (!confirm(message)) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  return false;
+                }
+              });
+            }
+          });
+        })();
+      </script>
+
+    </metal:main>
+  </body>
+</html>

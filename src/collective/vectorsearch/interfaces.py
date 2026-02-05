@@ -21,7 +21,12 @@ class IVectorSearchSettings(Interface):
 
     embedding_model = schema.Choice(
         title=_(u"Embedding Model"),
-        description=_(u"Select the embedding model to use for vector search"),
+        description=_(
+            u"Select the embedding model for vector search. "
+            u"WARNING: Changing this model requires clearing all existing vectors and reindexing all content. "
+            u"Different models produce incompatible vector dimensions. "
+            u"This operation cannot be undone."
+        ),
         vocabulary="collective.vectorsearch.embedding_models",
         default=u"gte-small",
         required=True,
@@ -73,53 +78,30 @@ class IVectorSearchSettings(Interface):
         required=True,
     )
 
-    stage1_retrieval_count = schema.Int(
-        title=_(u"Stage 1: Hamming Distance Pre-filtering"),
-        description=_(
-            u"Number of candidates to retrieve in the first stage using ITQ binary hash Hamming distance. "
-            u"Applied only when using multi-stage ITQ LSH algorithms. "
-            u"Leave empty to skip this stage."
-        ),
-        required=False,
-        min=1,
-        max=100000,
-    )
-
-    stage2_retrieval_count = schema.Int(
-        title=_(u"Stage 2: Cosine Similarity Re-ranking (Top-K)"),
-        description=_(
-            u"Number of top candidates from Stage 1 to re-rank using full cosine similarity. "
-            u"Applied only when using multi-stage ITQ LSH algorithms. "
-            u"Leave empty to skip this stage."
-        ),
-        required=False,
-        min=1,
-        max=100000,
-    )
-
-    stage3_retrieval_count = schema.Int(
-        title=_(u"Stage 3: Final Result Count"),
-        description=_(
-            u"Number of final results to return after all stages. "
-            u"Applied to all algorithms. "
-            u"Leave empty to use system default."
-        ),
-        required=False,
-        min=1,
-        max=10000,
-    )
-
     pivot_threshold = schema.Int(
-        title=_(u"Pivot Threshold"),
+        title=_(u"Pivot Threshold (Stage 1)"),
         description=_(
-            u"Threshold for pivot-based filtering (used in ITQ algorithms). "
+            u"Threshold for pivot-based filtering in Stage 1. "
             u"Higher values = more candidates retained. "
-            u"Recommended: 20 (46.2% reduction, 89.8% recall) or 15 (73.9% reduction, 85.9% recall)."
+            u"Recommended: 20 (89.8% recall) or 15 (85.9% recall)."
         ),
         default=20,
         required=False,
         min=1,
         max=100,
+    )
+
+    hamming_distance_threshold = schema.Int(
+        title=_(u"Hamming Distance Threshold (Stage 2)"),
+        description=_(
+            u"Maximum Hamming distance for candidate filtering in Stage 2. "
+            u"Lower values = stricter filtering, fewer candidates. "
+            u"Recommended: 2-10. Default: 3."
+        ),
+        default=3,
+        required=False,
+        min=0,
+        max=128,
     )
 
     @invariant
