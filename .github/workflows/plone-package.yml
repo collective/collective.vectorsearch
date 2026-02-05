@@ -36,14 +36,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        plone-version:
-          - 'Plone60'
-          - 'Plone61'
         python-version: ['3.9', '3.10', '3.11', '3.12', '3.13']
-        exclude:
-          # Plone 6.0 does not support Python 3.13
-          - plone-version: 'Plone60'
-            python-version: '3.13'
+        include:
+          # Python 3.9-3.12: test both Plone 6.0 and 6.1
+          - python-version: '3.9'
+            tox-envs: 'py39-Plone60,py39-Plone61'
+          - python-version: '3.10'
+            tox-envs: 'py310-Plone60,py310-Plone61'
+          - python-version: '3.11'
+            tox-envs: 'py311-Plone60,py311-Plone61'
+          - python-version: '3.12'
+            tox-envs: 'py312-Plone60,py312-Plone61'
+          # Python 3.13: Plone 6.1 only (6.0 not supported)
+          - python-version: '3.13'
+            tox-envs: 'py313-Plone61'
 
     steps:
       - uses: actions/checkout@v4
@@ -53,7 +59,7 @@ jobs:
             ~/.cache/pip
             ~/buildout-cache
             ~/extends
-          key: ${{ runner.os }}-tox-${{ matrix.python-version }}-${{ matrix.plone-version }}-${{ hashFiles('**/setup.py') }}-${{ hashFiles('**/requirements*.txt') }}-${{ hashFiles('**/*.cfg') }}-${{ hashFiles('**/constraints*.txt') }}-${{ hashFiles('**/tox.ini') }}
+          key: ${{ runner.os }}-tox-${{ matrix.python-version }}-${{ hashFiles('**/setup.py') }}-${{ hashFiles('**/requirements*.txt') }}-${{ hashFiles('**/*.cfg') }}-${{ hashFiles('**/constraints*.txt') }}-${{ hashFiles('**/tox.ini') }}
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
@@ -68,15 +74,12 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install tox tox-gh-actions
+          pip install tox
       - name: Test with tox
         run: |
-          tox -r
-        env:
-          PLONE_VERSION: ${{ matrix.plone-version }}
-          PYTHON_VERSION: ${{ matrix.python-version }}
+          tox -r -e ${{ matrix.tox-envs }}
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
           fail_ci_if_error: false
-        if: matrix.python-version == '3.11' && matrix.plone-version == 'Plone61'
+        if: matrix.python-version == '3.11'

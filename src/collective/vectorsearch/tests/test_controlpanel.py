@@ -29,7 +29,8 @@ class TestControlPanel(unittest.TestCase):
             (self.portal, self.request), name="vectorsearch-settings"
         )
         self.assertIsNotNone(view)
-        self.assertTrue(hasattr(view, "schema"))
+        # The view is a ControlPanelFormWrapper, form is inside
+        self.assertTrue(hasattr(view, "form"))
 
     def test_controlpanel_registered(self):
         """Test control panel is registered in portal_controlpanel."""
@@ -54,10 +55,11 @@ class TestControlPanel(unittest.TestCase):
             (self.portal, self.request), name="vectorsearch-settings"
         )
 
-        # Check that the view has access to the schema
+        # Check that the form has access to the schema
         from collective.vectorsearch.interfaces import IVectorSearchSettings
 
-        self.assertEqual(view.schema, IVectorSearchSettings)
+        # The view is a ControlPanelFormWrapper, schema is on the form class
+        self.assertEqual(view.form.schema, IVectorSearchSettings)
 
 
 class TestControlPanelUninstall(unittest.TestCase):

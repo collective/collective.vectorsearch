@@ -25,7 +25,8 @@ class TestAddVectorIndexView(unittest.TestCase):
 
     def test_view_renders(self):
         """Test that the add index view renders."""
-        view = self.catalog.Indexes.restrictedTraverse("@@add-vector-index.html")
+        # Access through IAdding adapter (+ traversal)
+        view = self.catalog.Indexes.restrictedTraverse("+/add-vector-index.html")
         html = view()
         self.assertIn("Add Vector Index", html)
         self.assertIn("Indexed Attributes", html)
@@ -35,7 +36,7 @@ class TestAddVectorIndexView(unittest.TestCase):
         self.request.form = {"id": "test_vector", "submit_add": "Add"}
         self.request.method = "POST"
 
-        view = self.catalog.Indexes.restrictedTraverse("@@add-vector-index.html")
+        view = self.catalog.Indexes.restrictedTraverse("+/add-vector-index.html")
         view()
 
         # Verify index was created
@@ -55,7 +56,7 @@ class TestAddVectorIndexView(unittest.TestCase):
         }
         self.request.method = "POST"
 
-        view = self.catalog.Indexes.restrictedTraverse("@@add-vector-index.html")
+        view = self.catalog.Indexes.restrictedTraverse("+/add-vector-index.html")
         view()
 
         # Verify index was created
@@ -72,7 +73,7 @@ class TestAddVectorIndexView(unittest.TestCase):
         self.request.form = {"id": "", "submit_add": "Add"}
         self.request.method = "POST"
 
-        view = self.catalog.Indexes.restrictedTraverse("@@add-vector-index.html")
+        view = self.catalog.Indexes.restrictedTraverse("+/add-vector-index.html")
         result = view()
 
         # Should return form (not redirect)
@@ -87,7 +88,7 @@ class TestAddVectorIndexView(unittest.TestCase):
         self.request.form = {"id": "test_vector3", "submit_add": "Add"}
         self.request.method = "POST"
 
-        view = self.catalog.Indexes.restrictedTraverse("@@add-vector-index.html")
+        view = self.catalog.Indexes.restrictedTraverse("+/add-vector-index.html")
         view()
 
         # Get the index
@@ -125,4 +126,4 @@ class TestAddVectorIndexViewPermissions(unittest.TestCase):
 
         # Attempt to access view should raise Unauthorized
         with self.assertRaises(Unauthorized):
-            self.catalog.Indexes.restrictedTraverse("@@add-vector-index.html")
+            self.catalog.Indexes.restrictedTraverse("+/add-vector-index.html")

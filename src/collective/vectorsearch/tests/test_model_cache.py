@@ -25,6 +25,7 @@ class TestModelCache(unittest.TestCase):
         # Both should be the same instance
         self.assertIs(cache1, cache2)
 
+    @patch("collective.vectorsearch.vector_index.HAS_SENTENCE_TRANSFORMERS", True)
     @patch("collective.vectorsearch.vector_index.SentenceTransformer")
     def test_get_model_loads_new_model(self, mock_transformer):
         """Test that get_model loads a model if not cached."""
@@ -41,6 +42,7 @@ class TestModelCache(unittest.TestCase):
         # Should return the model
         self.assertEqual(result, mock_model)
 
+    @patch("collective.vectorsearch.vector_index.HAS_SENTENCE_TRANSFORMERS", True)
     @patch("collective.vectorsearch.vector_index.SentenceTransformer")
     def test_get_model_returns_cached_model(self, mock_transformer):
         """Test that get_model returns cached model on second call."""
@@ -62,6 +64,7 @@ class TestModelCache(unittest.TestCase):
         # Both should be the same model
         self.assertIs(result1, result2)
 
+    @patch("collective.vectorsearch.vector_index.HAS_SENTENCE_TRANSFORMERS", True)
     @patch("collective.vectorsearch.vector_index.SentenceTransformer")
     def test_different_models_cached_separately(self, mock_transformer):
         """Test that different models are cached separately."""
@@ -89,54 +92,52 @@ class TestModelCache(unittest.TestCase):
         # Should be different models
         self.assertIsNot(result1, result2)
 
-    def test_clear_cache(self):
+    @patch("collective.vectorsearch.vector_index.HAS_SENTENCE_TRANSFORMERS", True)
+    @patch("collective.vectorsearch.vector_index.SentenceTransformer")
+    def test_clear_cache(self, mock_transformer):
         """Test that clear_cache removes all models."""
         from collective.vectorsearch.vector_index import ModelCache
 
-        with patch(
-            "collective.vectorsearch.vector_index.SentenceTransformer"
-        ) as mock_transformer:
-            mock_model = Mock()
-            mock_transformer.return_value = mock_model
+        mock_model = Mock()
+        mock_transformer.return_value = mock_model
 
-            cache = ModelCache()
+        cache = ModelCache()
 
-            # Load a model
-            cache.get_model("test-model")
-            info = cache.get_cache_info()
-            self.assertEqual(info["model_count"], 1)
+        # Load a model
+        cache.get_model("test-model")
+        info = cache.get_cache_info()
+        self.assertEqual(info["model_count"], 1)
 
-            # Clear the cache
-            cache.clear_cache()
-            info = cache.get_cache_info()
-            self.assertEqual(info["model_count"], 0)
-            self.assertEqual(info["cached_models"], [])
+        # Clear the cache
+        cache.clear_cache()
+        info = cache.get_cache_info()
+        self.assertEqual(info["model_count"], 0)
+        self.assertEqual(info["cached_models"], [])
 
-    def test_get_cache_info(self):
+    @patch("collective.vectorsearch.vector_index.HAS_SENTENCE_TRANSFORMERS", True)
+    @patch("collective.vectorsearch.vector_index.SentenceTransformer")
+    def test_get_cache_info(self, mock_transformer):
         """Test that get_cache_info returns correct information."""
         from collective.vectorsearch.vector_index import ModelCache
 
-        with patch(
-            "collective.vectorsearch.vector_index.SentenceTransformer"
-        ) as mock_transformer:
-            mock_model = Mock()
-            mock_transformer.return_value = mock_model
+        mock_model = Mock()
+        mock_transformer.return_value = mock_model
 
-            cache = ModelCache()
+        cache = ModelCache()
 
-            # Initially empty
-            info = cache.get_cache_info()
-            self.assertEqual(info["model_count"], 0)
-            self.assertEqual(info["cached_models"], [])
+        # Initially empty
+        info = cache.get_cache_info()
+        self.assertEqual(info["model_count"], 0)
+        self.assertEqual(info["cached_models"], [])
 
-            # Load two models
-            cache.get_model("model-1")
-            cache.get_model("model-2")
+        # Load two models
+        cache.get_model("model-1")
+        cache.get_model("model-2")
 
-            info = cache.get_cache_info()
-            self.assertEqual(info["model_count"], 2)
-            self.assertIn("model-1", info["cached_models"])
-            self.assertIn("model-2", info["cached_models"])
+        info = cache.get_cache_info()
+        self.assertEqual(info["model_count"], 2)
+        self.assertIn("model-1", info["cached_models"])
+        self.assertIn("model-2", info["cached_models"])
 
 
 class TestVectorIndexWithModelCache(unittest.TestCase):
