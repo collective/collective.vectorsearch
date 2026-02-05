@@ -63,22 +63,24 @@
     />
 
   <!-- Register embedding model providers -->
+  <!-- FastEmbed-based providers (CPU, no GPU required) -->
   <utility
-      factory=".model_providers.GTESmallProvider"
+      factory=".model_providers.AllMiniLMProvider"
       provides=".interfaces.IEmbeddingModelProvider"
-      name="gte-small"
+      name="all-minilm-l6"
   />
 
   <utility
-      factory=".model_providers.E5BaseProvider"
+      factory=".model_providers.E5BaseMultilingualProvider"
       provides=".interfaces.IEmbeddingModelProvider"
       name="e5-base-multilingual"
   />
 
+  <!-- SentenceTransformers-based provider (GPU support, requires [gpu] extras) -->
   <utility
-      factory=".model_providers.E5FastEmbedProvider"
+      factory=".model_providers.E5BaseMultilingualGPUProvider"
       provides=".interfaces.IEmbeddingModelProvider"
-      name="e5-base-multilingual-fastembed"
+      name="e5-base-multilingual-gpu"
   />
 
   <!-- Register vocabulary factory -->

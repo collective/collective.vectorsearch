@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """Control panel for Vector Search settings."""
+import logging
+
 from plone.app.registry.browser.controlpanel import RegistryEditForm
 from plone.app.registry.browser.controlpanel import ControlPanelFormWrapper
 from plone.z3cform import layout
@@ -10,9 +12,8 @@ from plone import api
 
 from collective.vectorsearch.interfaces import IVectorSearchSettings
 from collective.vectorsearch.interfaces import IVectorIndex
+from collective.vectorsearch.model_providers import get_backend_info
 from collective.vectorsearch import _
-
-import logging
 
 logger = logging.getLogger('collective.vectorsearch')
 
@@ -33,10 +34,10 @@ class VectorSearchControlPanelForm(RegistryEditForm):
         try:
             return api.portal.get_registry_record(
                 'collective.vectorsearch.embedding_model',
-                default='gte-small'
+                default='all-minilm-l6'
             )
         except Exception:
-            return 'gte-small'
+            return 'all-minilm-l6'
 
     def _get_vector_indexes(self):
         """Get all vector indexes from the catalog."""
@@ -159,6 +160,17 @@ class VectorSearchControlPanelForm(RegistryEditForm):
     def total_vectors(self):
         """Total vectors across all vector indexes."""
         return sum(s['vector_count'] for s in self.vector_index_stats)
+
+    @property
+    def backend_info(self):
+        """Get backend information from registered providers."""
+        return get_backend_info()
+
+    @property
+    def has_available_backend(self):
+        """Check if at least one backend is available."""
+        backends = get_backend_info()
+        return any(b['available'] for b in backends)
 
     @button.buttonAndHandler(_(u"Save"), name="save")
     def handleSave(self, action):

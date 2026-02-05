@@ -7,7 +7,7 @@
   <records interface="collective.vectorsearch.interfaces.IVectorSearchSettings"
            prefix="collective.vectorsearch"
            purge="false">
-    <value key="embedding_model">gte-small</value>
+    <value key="embedding_model">all-minilm-l6</value>
     <value key="embedding_chunk_size">500</value>
     <value key="storage_backend">btrees</value>
     <value key="external_db_uri"></value>

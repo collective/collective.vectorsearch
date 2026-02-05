@@ -28,7 +28,7 @@ class IVectorSearchSettings(Interface):
             u"This operation cannot be undone."
         ),
         vocabulary="collective.vectorsearch.embedding_models",
-        default=u"gte-small",
+        default=u"all-minilm-l6",
         required=True,
     )
 

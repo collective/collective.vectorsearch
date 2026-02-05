@@ -20,12 +20,18 @@ except ImportError:
     SearchableText = None
 
 import numpy as np
-from sentence_transformers import SentenceTransformer
 from plone import api
 
 from collective.vectorsearch.interfaces import IVectorIndex, IEmbeddingModelProvider
-from collective.vectorsearch.embedding import SentenceTransformerEmbedding
 from collective.vectorsearch.similarity_algorithm import CosineSimilarityAlgorithm
+
+# Optional: sentence_transformers for GPU support
+try:
+    from sentence_transformers import SentenceTransformer
+    HAS_SENTENCE_TRANSFORMERS = True
+except ImportError:
+    SentenceTransformer = None
+    HAS_SENTENCE_TRANSFORMERS = False
 from zope.component import queryUtility
 
 logger = getLogger("collective.vectorsearch")
@@ -36,6 +42,8 @@ class ModelCache:
 
     This prevents loading the same model multiple times into memory,
     which can be very expensive (100MB+ per model).
+
+    Note: Requires the 'gpu' extras to be installed (sentence_transformers).
     """
     _instance = None
     _models = {}
@@ -53,7 +61,16 @@ class ModelCache:
 
         Returns:
             SentenceTransformer model instance
+
+        Raises:
+            ImportError: If sentence_transformers is not installed
         """
+        if not HAS_SENTENCE_TRANSFORMERS:
+            raise ImportError(
+                "sentence_transformers is not installed. "
+                "Install with: pip install collective.vectorsearch[gpu]"
+            )
+
         if model_name not in self._models:
             logger.info(f"Loading model '{model_name}' into cache")
             self._models[model_name] = SentenceTransformer(model_name)
@@ -76,6 +93,11 @@ class ModelCache:
             'cached_models': list(self._models.keys()),
             'model_count': len(self._models)
         }
+
+    @staticmethod
+    def is_available():
+        """Check if SentenceTransformer support is available."""
+        return HAS_SENTENCE_TRANSFORMERS
 
 
 @implementer(IVectorIndex, IQueryIndex)
@@ -135,7 +157,7 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
             return
 
         settings = self._get_settings()
-        model_id = settings.get('embedding_model', 'gte-small')
+        model_id = settings.get('embedding_model', 'all-minilm-l6')
         chunk_size = settings.get('embedding_chunk_size', 500)
         approx_algo = settings.get('approximation_algorithm', 'exhaustive_cosine')
 
@@ -143,8 +165,8 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
         model_provider = queryUtility(IEmbeddingModelProvider, name=model_id)
 
         if model_provider is None:
-            logger.warning(f"Model provider '{model_id}' not found, using gte-small")
-            model_provider = queryUtility(IEmbeddingModelProvider, name='gte-small')
+            logger.warning(f"Model provider '{model_id}' not found, using all-minilm-l6")
+            model_provider = queryUtility(IEmbeddingModelProvider, name='all-minilm-l6')
 
         self._model_provider = model_provider
 
@@ -193,7 +215,7 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
             settings = {
                 'embedding_model': registry(
                     'collective.vectorsearch.embedding_model',
-                    default='gte-small'
+                    default='all-minilm-l6'
                 ),
                 'embedding_chunk_size': registry(
                     'collective.vectorsearch.embedding_chunk_size',
@@ -252,7 +274,7 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
     def _get_default_settings(self):
         """Fallback default settings."""
         return {
-            'embedding_model': 'gte-small',
+            'embedding_model': 'all-minilm-l6',
             'embedding_chunk_size': 500,
             'storage_backend': 'btrees',
             'external_db_uri': '',
@@ -320,7 +342,7 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
 
         # Track which model was used (set on first index, or update if changed)
         settings = self._get_settings()
-        current_model = settings.get('embedding_model', 'gte-small')
+        current_model = settings.get('embedding_model', 'all-minilm-l6')
         if getattr(self, 'indexed_with_model', None) is None:
             self.indexed_with_model = current_model
 
