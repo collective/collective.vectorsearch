@@ -183,6 +183,34 @@ ZMIから追加のVectorIndexインスタンスを作成できます:
         name="my-custom-model"
     />
 
+ITQ/pivotデータサポートを含む詳細な手順については、
+`docs/model-providers.rst <docs/model-providers.rst>`_ を参照してください（英語）。
+
+
+近似最近傍探索
+~~~~~~~~~~~~~~
+
+このパッケージは高速な類似度検索のための近似検索アルゴリズムをサポートしています:
+
+- **ITQ-LSH**: 高速なハミング距離比較のためのバイナリハッシュ
+- **Pivot-based filtering**: 三角不等式を利用した候補の枝刈り
+
+デフォルトの埋め込みモデル用に、事前計算されたITQおよびpivotデータが含まれています。
+これらの仕組みとカスタムモデル用のデータ生成方法については、
+`docs/approximate-search.rst <docs/approximate-search.rst>`_ を参照してください（英語）。
+
+
+オフラインモデルダウンロード
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+FastEmbedは初回使用時にモデルをダウンロードします。オフライン環境では、
+CLIコマンドを使用してモデルを事前にダウンロードできます::
+
+    vectorsearch-download
+
+これにより、サポートされているすべてのモデルが ``~/.cache/fastembed`` にダウンロードされます。
+別の場所を使用するには ``FASTEMBED_CACHE_PATH`` 環境変数を設定してください。
+
 
 重要な注意事項
 --------------

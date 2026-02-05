@@ -128,6 +128,14 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
         # Track which model was used to create vectors (None = no vectors yet)
         self.indexed_with_model = None
 
+        # Storage for ITQ hashes (128-bit as two 64-bit integers)
+        # Key: docid, Value: (high_64bit, low_64bit)
+        self._itq_hashes = IOBTree()
+
+        # Storage for pivot distances (8 integer values per document)
+        # Key: docid, Value: tuple of 8 integers (distance * 1000)
+        self._pivot_distances = IOBTree()
+
         # Handle indexed_attrs from extra parameter
         if extra is not None and isinstance(extra, dict):
             indexed_attrs = extra.get("indexed_attrs", "")
@@ -144,19 +152,24 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
             self.indexed_attrs = [self.id]
 
         # Lazy initialization flags - model/embedding loaded on first use
-        self._embedding = None
-        self._model_provider = None
-        self._similarity_algorithm = None
-        self.itq_boundary = None
-        self.pivot_data = None
+        # Use _v_ prefix for volatile attributes (not persisted to ZODB)
+        # ONNX sessions and model objects cannot be pickled
+        self._v_embedding = None
+        self._v_model_provider = None
+        self._v_similarity_algorithm = None
+        self._v_itq_boundary = None
+        self._v_pivot_data = None
 
     def _ensure_initialized(self):
         """Lazy initialization of embedding model and similarity algorithm.
 
         This is called on first use (index_doc or query_index) to avoid
         loading heavy ML models during Quickinstall.
+
+        Note: Volatile attributes (_v_*) are not persisted to ZODB, so we
+        must use getattr() with defaults when checking them.
         """
-        if self._embedding is not None:
+        if getattr(self, "_v_embedding", None) is not None:
             return
 
         settings = self._get_settings()
@@ -173,14 +186,14 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
             )
             model_provider = queryUtility(IEmbeddingModelProvider, name="all-minilm-l6")
 
-        self._model_provider = model_provider
+        self._v_model_provider = model_provider
 
         # Get prefixes from model provider
         prefix_query = getattr(model_provider, "query_prefix", None)
         prefix_passage = getattr(model_provider, "passage_prefix", None)
 
         # Get embedding instance from provider
-        self._embedding = model_provider.get_embedding_instance(
+        self._v_embedding = model_provider.get_embedding_instance(
             chunk_size=chunk_size,
             prefix_query=prefix_query,
             prefix_passage=prefix_passage,
@@ -188,29 +201,29 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
 
         # Load ITQ data if needed (Phase 2: not implemented yet)
         if approx_algo in ("itq_lsh_2stage", "itq_lsh_3stage"):
-            self.itq_boundary = model_provider.get_itq_boundary()
-            self.pivot_data = model_provider.get_pivot_data()
+            self._v_itq_boundary = model_provider.get_itq_boundary()
+            self._v_pivot_data = model_provider.get_pivot_data()
 
         # Initialize similarity algorithm
-        self._similarity_algorithm = CosineSimilarityAlgorithm()
+        self._v_similarity_algorithm = CosineSimilarityAlgorithm()
 
     @property
     def embedding(self):
         """Lazy-loaded embedding instance."""
         self._ensure_initialized()
-        return self._embedding
+        return self._v_embedding
 
     @property
     def model_provider(self):
         """Lazy-loaded model provider."""
         self._ensure_initialized()
-        return self._model_provider
+        return self._v_model_provider
 
     @property
     def similarity_algorithm(self):
         """Lazy-loaded similarity algorithm."""
         self._ensure_initialized()
-        return self._similarity_algorithm
+        return self._v_similarity_algorithm
 
     def _get_settings(self):
         """Retrieve all configuration from registry."""
@@ -324,30 +337,152 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
             logger.debug("Skipping empty or invalid text for document %s", docid)
             return 0
 
+        # Try to embed FIRST, before modifying any data
+        # This ensures we don't corrupt counts if embedding fails
+        try:
+            vectors = self.embedding.embed(text)
+        except Exception as e:
+            logger.error("Failed to embed text for document %s: %s", docid, e)
+            # Don't touch existing data if embedding fails
+            return 0
+
+        # Only update counts AFTER successful embedding
         old_vectors = self._docvectors.get(docid, None)
         if old_vectors is not None:
             self._change_length("document_count", -1)
             old_row, old_col = old_vectors.shape
             self._change_length("length", -old_row)
 
-        try:
-            vectors = self.embedding.embed(text)
-        except Exception as e:
-            logger.error("Failed to embed text for document %s: %s", docid, e)
-            return 0
-
         row, col = vectors.shape
         self._change_length("document_count", 1)
         self._change_length("length", row)
         self._docvectors[docid] = vectors
 
-        # Track which model was used (set on first index, or update if changed)
+        # Track which model was used and detect model changes
         settings = self._get_settings()
         current_model = settings.get("embedding_model", "all-minilm-l6")
-        if getattr(self, "indexed_with_model", None) is None:
+        previous_model = getattr(self, "indexed_with_model", None)
+
+        if previous_model is None:
+            # First document being indexed
+            self.indexed_with_model = current_model
+        elif previous_model != current_model:
+            # Model has changed - clear ITQ/pivot data and update tracking
+            logger.warning(
+                f"Embedding model changed from '{previous_model}' to '{current_model}'. "
+                "ITQ/pivot data has been cleared. Consider running a full reindex."
+            )
+            self._clear_itq_pivot_data()
             self.indexed_with_model = current_model
 
+        # Compute and store ITQ hash and pivot distances for all chunks
+        self._compute_and_store_itq_pivot_all(docid, vectors)
+
         return row
+
+    def _clear_itq_pivot_data(self):
+        """Clear all ITQ hashes and pivot distances.
+
+        Called when the embedding model changes, as the previous
+        ITQ/pivot data is no longer valid.
+        """
+        if hasattr(self, "_itq_hashes"):
+            self._itq_hashes = IOBTree()
+        if hasattr(self, "_pivot_distances"):
+            self._pivot_distances = IOBTree()
+        logger.info("Cleared ITQ hashes and pivot distances due to model change")
+
+    def _compute_and_store_itq_pivot_all(self, docid, vectors):
+        """Compute and store ITQ hashes and pivot distances for all chunks.
+
+        Args:
+            docid: Document ID
+            vectors: numpy array of embedding vectors (one per chunk)
+        """
+        # Ensure ITQ/pivot data BTrees exist (for existing indexes without them)
+        if not hasattr(self, "_itq_hashes"):
+            self._itq_hashes = IOBTree()
+        if not hasattr(self, "_pivot_distances"):
+            self._pivot_distances = IOBTree()
+
+        # Get ITQ data from model provider
+        # Use hasattr to support older model providers without these methods
+        if self.model_provider is None:
+            logger.warning(f"model_provider is None for doc {docid}, skipping ITQ/pivot")
+            return
+
+        provider_class = self.model_provider.__class__.__name__
+        num_chunks = len(vectors)
+        logger.info(f"Computing ITQ/pivot for doc {docid} ({num_chunks} chunks) using {provider_class}")
+
+        # Compute ITQ hashes for all chunks
+        itq_hashes_list = []
+        if hasattr(self.model_provider, "get_itq_boundary"):
+            itq_data = self.model_provider.get_itq_boundary()
+            if itq_data is not None:
+                for i, vector in enumerate(vectors):
+                    try:
+                        binary_hash = itq_data.compute_hash(vector)
+                        high, low = self._binary_hash_to_integers(binary_hash)
+                        itq_hashes_list.append((high, low))
+                    except Exception as e:
+                        logger.warning(f"Failed to compute ITQ hash for doc {docid} chunk {i}: {e}")
+                if itq_hashes_list:
+                    self._itq_hashes[docid] = tuple(itq_hashes_list)
+                    logger.info(f"Stored {len(itq_hashes_list)} ITQ hashes for doc {docid}")
+            else:
+                logger.warning(f"ITQ data is None for {provider_class}")
+        else:
+            logger.warning(f"{provider_class} has no get_itq_boundary method")
+
+        # Compute pivot distances for all chunks
+        pivot_distances_list = []
+        if hasattr(self.model_provider, "get_pivot_data"):
+            pivot_data = self.model_provider.get_pivot_data()
+            if pivot_data is not None:
+                for i, vector in enumerate(vectors):
+                    try:
+                        distances = pivot_data.compute_distances(vector)
+                        # Convert to integers (distance * 1000)
+                        int_distances = tuple(int(round(d * 1000)) for d in distances)
+                        pivot_distances_list.append(int_distances)
+                    except Exception as e:
+                        logger.warning(f"Failed to compute pivot distances for doc {docid} chunk {i}: {e}")
+                if pivot_distances_list:
+                    self._pivot_distances[docid] = tuple(pivot_distances_list)
+                    logger.info(f"Stored pivot distances for {len(pivot_distances_list)} chunks of doc {docid}")
+            else:
+                logger.warning(f"Pivot data is None for {provider_class}")
+        else:
+            logger.warning(f"{provider_class} has no get_pivot_data method")
+
+    def _binary_hash_to_integers(self, binary_hash):
+        """Convert 128-bit binary hash to two 64-bit integers.
+
+        Args:
+            binary_hash: numpy array of 128 uint8 values (0 or 1)
+
+        Returns:
+            tuple: (high_64bits, low_64bits) as Python integers
+        """
+        if binary_hash is None or len(binary_hash) != 128:
+            return None, None
+
+        high_bits = binary_hash[:64]
+        low_bits = binary_hash[64:]
+
+        high_int = 0
+        low_int = 0
+
+        for i, bit in enumerate(high_bits):
+            if bit:
+                high_int |= 1 << (63 - i)
+
+        for i, bit in enumerate(low_bits):
+            if bit:
+                low_int |= 1 << (63 - i)
+
+        return high_int, low_int
 
     security.declareProtected(manage_zcatalog_indexes, "unindex_object")
 
@@ -363,6 +498,19 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
                 logger.warning(
                     "Document %s not found in index during unindexing", docid
                 )
+
+        # Also remove ITQ hash and pivot distances
+        if hasattr(self, "_itq_hashes") and docid in self._itq_hashes:
+            try:
+                del self._itq_hashes[docid]
+            except KeyError:
+                pass
+
+        if hasattr(self, "_pivot_distances") and docid in self._pivot_distances:
+            try:
+                del self._pivot_distances[docid]
+            except KeyError:
+                pass
 
     def _apply_index(self, request):
         """Apply the index to a search request.
@@ -463,9 +611,123 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
 
     def clear(self):
         self._docvectors = IOBTree()
+        self._itq_hashes = IOBTree()
+        self._pivot_distances = IOBTree()
         self.length = Length()
         self.document_count = Length()
         self.indexed_with_model = None
+
+    security.declareProtected(search_zcatalog, "getITQHashes")
+
+    def getITQHashes(self, docid):
+        """Get the ITQ hashes for all chunks of a document.
+
+        Args:
+            docid: Document ID (RID)
+
+        Returns:
+            tuple: List of (high_64bit, low_64bit) tuples, one per chunk
+                   Returns None if not found
+        """
+        if not hasattr(self, "_itq_hashes"):
+            return None
+        return self._itq_hashes.get(docid, None)
+
+    # Legacy method for backward compatibility
+    security.declareProtected(search_zcatalog, "getITQHash")
+
+    def getITQHash(self, docid):
+        """Get the first ITQ hash for a document (legacy).
+
+        Deprecated: Use getITQHashes() for multi-chunk support.
+
+        Args:
+            docid: Document ID (RID)
+
+        Returns:
+            tuple: (high_64bit, low_64bit) of first chunk, or None if not found
+        """
+        hashes = self.getITQHashes(docid)
+        if hashes and len(hashes) > 0:
+            return hashes[0]
+        return None
+
+    security.declareProtected(search_zcatalog, "getPivotDistancesAll")
+
+    def getPivotDistancesAll(self, docid):
+        """Get the pivot distances for all chunks of a document.
+
+        Args:
+            docid: Document ID (RID)
+
+        Returns:
+            tuple: List of (d1, d2, ..., d8) tuples, one per chunk
+                   Returns None if not found
+        """
+        if not hasattr(self, "_pivot_distances"):
+            return None
+        return self._pivot_distances.get(docid, None)
+
+    security.declareProtected(search_zcatalog, "getPivotDistancesForIndex")
+
+    def getPivotDistancesForIndex(self, docid, pivot_index):
+        """Get distances to a specific pivot for all chunks.
+
+        Args:
+            docid: Document ID (RID)
+            pivot_index: 0-based index of the pivot (0-7)
+
+        Returns:
+            tuple: List of integer distances for all chunks, or None if not found
+        """
+        all_distances = self.getPivotDistancesAll(docid)
+        if all_distances is None or pivot_index < 0 or pivot_index >= 8:
+            return None
+
+        # Extract the specific pivot distance from each chunk
+        result = []
+        for chunk_distances in all_distances:
+            if pivot_index < len(chunk_distances):
+                result.append(chunk_distances[pivot_index])
+        return tuple(result) if result else None
+
+    # Legacy methods for backward compatibility
+    security.declareProtected(search_zcatalog, "getPivotDistances")
+
+    def getPivotDistances(self, docid):
+        """Get the pivot distances for first chunk (legacy).
+
+        Deprecated: Use getPivotDistancesAll() for multi-chunk support.
+
+        Args:
+            docid: Document ID (RID)
+
+        Returns:
+            tuple: 8 integer distance values for first chunk, or None if not found
+        """
+        all_distances = self.getPivotDistancesAll(docid)
+        if all_distances and len(all_distances) > 0:
+            return all_distances[0]
+        return None
+
+    security.declareProtected(search_zcatalog, "getPivotDistance")
+
+    def getPivotDistance(self, docid, pivot_index):
+        """Get a specific pivot distance for first chunk (legacy).
+
+        Deprecated: Use getPivotDistancesForIndex() for multi-chunk support.
+
+        Args:
+            docid: Document ID (RID)
+            pivot_index: 0-based index of the pivot (0-7)
+
+        Returns:
+            int: Distance value for first chunk, or None if not found
+        """
+        distances = self.getPivotDistances(docid)
+        if distances is None or pivot_index < 0 or pivot_index >= len(distances):
+            return None
+        return distances[pivot_index]
 
     security.declareProtected(search_zcatalog, "getIndexedModel")
 
@@ -476,6 +738,130 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
             str or None: Model ID if vectors exist, None if index is empty
         """
         return getattr(self, "indexed_with_model", None)
+
+    security.declareProtected(search_zcatalog, "isModelConsistent")
+
+    def isModelConsistent(self):
+        """Check if the current model matches the model used for indexing.
+
+        Returns:
+            bool: True if models match or index is empty, False if mismatch
+        """
+        indexed_model = self.getIndexedModel()
+        if indexed_model is None:
+            return True  # No data indexed yet
+
+        settings = self._get_settings()
+        current_model = settings.get("embedding_model", "all-minilm-l6")
+        return indexed_model == current_model
+
+    security.declareProtected(search_zcatalog, "getITQPivotStats")
+
+    def getITQPivotStats(self):
+        """Get statistics about ITQ hash and pivot distance storage.
+
+        Returns:
+            dict: Statistics including counts and consistency info
+        """
+        # Count documents and chunks for ITQ hashes
+        itq_docs = 0
+        itq_chunks = 0
+        if hasattr(self, "_itq_hashes"):
+            itq_docs = len(self._itq_hashes)
+            for hashes in self._itq_hashes.values():
+                if hashes:
+                    itq_chunks += len(hashes)
+
+        # Count documents and chunks for pivot distances
+        pivot_docs = 0
+        pivot_chunks = 0
+        if hasattr(self, "_pivot_distances"):
+            pivot_docs = len(self._pivot_distances)
+            for distances in self._pivot_distances.values():
+                if distances:
+                    pivot_chunks += len(distances)
+
+        stats = {
+            "documents": self.document_count() if hasattr(self, "document_count") else 0,
+            "vectors": self.length() if hasattr(self, "length") else 0,
+            "itq_hashes": itq_docs,
+            "itq_hashes_chunks": itq_chunks,
+            "pivot_distances": pivot_docs,
+            "pivot_distances_chunks": pivot_chunks,
+            "indexed_model": self.getIndexedModel(),
+            "model_consistent": self.isModelConsistent(),
+        }
+
+        # Check if ITQ/pivot data is available for current model
+        # Wrap in try/except to handle model loading failures gracefully
+        # (stats display should work even if the model can't be loaded)
+        try:
+            provider = self.model_provider
+            if provider is not None:
+                if hasattr(provider, "get_itq_boundary"):
+                    stats["itq_data_available"] = (
+                        provider.get_itq_boundary() is not None
+                    )
+                else:
+                    stats["itq_data_available"] = False
+
+                if hasattr(provider, "get_pivot_data"):
+                    stats["pivot_data_available"] = (
+                        provider.get_pivot_data() is not None
+                    )
+                else:
+                    stats["pivot_data_available"] = False
+            else:
+                stats["itq_data_available"] = False
+                stats["pivot_data_available"] = False
+        except Exception as e:
+            logger.debug(f"Could not check ITQ/pivot data availability: {e}")
+            # If model can't be loaded, check if data exists based on stored data
+            stats["itq_data_available"] = itq_docs > 0
+            stats["pivot_data_available"] = pivot_docs > 0
+
+        return stats
+
+    security.declareProtected(manage_zcatalog_indexes, "clearAndRecomputeITQPivot")
+
+    def clearAndRecomputeITQPivot(self):
+        """Clear and recompute all ITQ hashes and pivot distances.
+
+        This is useful when:
+        - The embedding model has changed
+        - ITQ/pivot data files have been updated
+        - Data is inconsistent
+
+        Returns:
+            dict: Statistics about the recomputation
+        """
+        logger.info(f"clearAndRecomputeITQPivot called. _docvectors has {len(self._docvectors)} items")
+
+        # Clear existing data
+        self._clear_itq_pivot_data()
+
+        # Recompute for all documents
+        recomputed = 0
+        errors = 0
+
+        for docid, vectors in self._docvectors.items():
+            logger.info(f"Processing docid {docid}, vectors shape: {vectors.shape if vectors is not None else 'None'}")
+            if vectors is not None and len(vectors) > 0:
+                try:
+                    self._compute_and_store_itq_pivot_all(docid, vectors)
+                    recomputed += 1
+                except Exception as e:
+                    logger.warning(f"Failed to recompute ITQ/pivot for doc {docid}: {e}")
+                    errors += 1
+
+        logger.info(f"Recomputed ITQ/pivot for {recomputed} documents ({errors} errors)")
+        logger.info(f"After recompute: _itq_hashes has {len(self._itq_hashes)} items, _pivot_distances has {len(self._pivot_distances)} items")
+
+        return {
+            "recomputed": recomputed,
+            "errors": errors,
+            "total": len(self._docvectors),
+        }
 
     security.declareProtected(search_zcatalog, "getIndexSourceNames")
 

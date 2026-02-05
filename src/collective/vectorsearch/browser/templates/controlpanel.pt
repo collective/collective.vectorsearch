@@ -110,6 +110,8 @@
                 <th i18n:translate="">Index Name</th>
                 <th i18n:translate="">Documents</th>
                 <th i18n:translate="">Vectors</th>
+                <th i18n:translate="">ITQ Hashes</th>
+                <th i18n:translate="">Pivot Dist.</th>
                 <th i18n:translate="">Indexed With</th>
                 <th i18n:translate="">Status</th>
               </tr>
@@ -119,6 +121,28 @@
                 <td tal:content="stat/id">Index ID</td>
                 <td tal:content="stat/document_count">0</td>
                 <td tal:content="stat/vector_count">0</td>
+                <td>
+                  <tal:has-itq tal:condition="stat/itq_data_available">
+                    <span tal:content="stat/itq_hash_count">0</span>
+                    <small style="color: #666;">
+                      (<span tal:content="stat/itq_hash_chunks">0</span> chunks)
+                    </small>
+                  </tal:has-itq>
+                  <tal:no-itq tal:condition="not:stat/itq_data_available">
+                    <em i18n:translate="" style="color: #999;">N/A</em>
+                  </tal:no-itq>
+                </td>
+                <td>
+                  <tal:has-pivot tal:condition="stat/pivot_data_available">
+                    <span tal:content="stat/pivot_distance_count">0</span>
+                    <small style="color: #666;">
+                      (<span tal:content="stat/pivot_distance_chunks">0</span> chunks)
+                    </small>
+                  </tal:has-pivot>
+                  <tal:no-pivot tal:condition="not:stat/pivot_data_available">
+                    <em i18n:translate="" style="color: #999;">N/A</em>
+                  </tal:no-pivot>
+                </td>
                 <td>
                   <tal:has-model tal:condition="stat/indexed_model">
                     <code tal:content="stat/indexed_model">model</code>
@@ -168,7 +192,7 @@
         </tal:form>
       </div>
 
-      <!-- JavaScript for confirmation dialog on Clear button -->
+      <!-- JavaScript for confirmation dialog on Clear button and Recompute ITQ button -->
       <script type="text/javascript">
         (function() {
           'use strict';
@@ -182,6 +206,23 @@
                   'WARNING: This will clear ALL vector data from ALL indexes.\n\n' +
                   'You will need to reindex all content after this operation.\n\n' +
                   'Are you sure you want to continue?';
+
+                if (!confirm(message)) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  return false;
+                }
+              });
+            }
+
+            // Confirmation for Recompute ITQ/Pivot button
+            var recomputeButton = document.querySelector('[name="form.buttons.recompute_itq"]');
+            if (recomputeButton) {
+              recomputeButton.addEventListener('click', function(e) {
+                var message =
+                  'This will recompute ITQ hashes and pivot distances from existing vectors.\n\n' +
+                  'This operation may take some time depending on the number of indexed documents.\n\n' +
+                  'Continue?';
 
                 if (!confirm(message)) {
                   e.preventDefault();

@@ -54,6 +54,16 @@
     />
   </genericsetup:upgradeSteps>
 
+  <genericsetup:upgradeSteps
+      source="1001"
+      destination="1002"
+      profile="collective.vectorsearch:default">
+    <genericsetup:upgradeStep
+        title="Add ITQ/Pivot indexes and metadata columns"
+        handler=".upgrades.upgrade_to_1002"
+    />
+  </genericsetup:upgradeSteps>
+
   <five:registerClass
       class=".vector_index.VectorIndex"
       meta_type="VectorIndex"
@@ -102,5 +112,21 @@
       provides="zope.schema.interfaces.IVocabularyFactory"
       name="collective.vectorsearch.approximation_algorithms"
   />
+
+  <!-- ITQ Hash indexer (list of 128-bit hashes for all chunks) -->
+  <adapter
+      factory=".indexers.itq_hashes"
+      name="itq_hashes"
+  />
+
+  <!-- Pivot distance indexers (8 pivot distances for triangle inequality filtering) -->
+  <adapter factory=".indexers.pivot1" name="pivot1" />
+  <adapter factory=".indexers.pivot2" name="pivot2" />
+  <adapter factory=".indexers.pivot3" name="pivot3" />
+  <adapter factory=".indexers.pivot4" name="pivot4" />
+  <adapter factory=".indexers.pivot5" name="pivot5" />
+  <adapter factory=".indexers.pivot6" name="pivot6" />
+  <adapter factory=".indexers.pivot7" name="pivot7" />
+  <adapter factory=".indexers.pivot8" name="pivot8" />
 
 </configure>

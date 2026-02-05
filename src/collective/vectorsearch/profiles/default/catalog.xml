@@ -1,4 +1,37 @@
 <?xml version="1.0"?>
 <object name="portal_catalog">
+  <!-- VectorIndex for storing embeddings -->
   <index name="llm_vector" meta_type="VectorIndex"></index>
+
+  <!-- Pivot distance indexes for stage 1 filtering (triangle inequality) -->
+  <!-- Each pivot stores integer distance values (distance * 1000) for all chunks -->
+  <!-- KeywordIndex allows multiple values per document and range queries -->
+  <index name="pivot1" meta_type="KeywordIndex">
+    <indexed_attr value="pivot1"/>
+  </index>
+  <index name="pivot2" meta_type="KeywordIndex">
+    <indexed_attr value="pivot2"/>
+  </index>
+  <index name="pivot3" meta_type="KeywordIndex">
+    <indexed_attr value="pivot3"/>
+  </index>
+  <index name="pivot4" meta_type="KeywordIndex">
+    <indexed_attr value="pivot4"/>
+  </index>
+  <index name="pivot5" meta_type="KeywordIndex">
+    <indexed_attr value="pivot5"/>
+  </index>
+  <index name="pivot6" meta_type="KeywordIndex">
+    <indexed_attr value="pivot6"/>
+  </index>
+  <index name="pivot7" meta_type="KeywordIndex">
+    <indexed_attr value="pivot7"/>
+  </index>
+  <index name="pivot8" meta_type="KeywordIndex">
+    <indexed_attr value="pivot8"/>
+  </index>
+
+  <!-- ITQ hash metadata for stage 2 filtering (Hamming distance) -->
+  <!-- List of (high_64bit, low_64bit) tuples for each chunk -->
+  <column value="itq_hashes"/>
 </object>

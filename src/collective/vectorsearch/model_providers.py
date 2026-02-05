@@ -7,6 +7,12 @@ from zope.component import getUtilitiesFor
 from zope.interface import implementer
 
 from collective.vectorsearch import embedding as emb_module
+from collective.vectorsearch.data_loader import (
+    load_itq_data,
+    load_pivot_data,
+    validate_itq_data,
+    validate_pivot_data,
+)
 from collective.vectorsearch.interfaces import IEmbeddingModelProvider
 
 logger = logging.getLogger("collective.vectorsearch")
@@ -65,6 +71,11 @@ class BaseEmbeddingModelProvider:
     embedding_class = "SentenceTransformerEmbedding"  # Default
     query_prefix = None
     passage_prefix = None
+
+    # Data file configuration
+    # If None, uses self.id with hyphens converted to underscores
+    # Multiple providers can share the same data_file_id (e.g., CPU/GPU variants)
+    data_file_id = None
 
     # Backend configuration
     backend = "sentence_transformers"  # 'fastembed' or 'sentence_transformers'
@@ -143,13 +154,55 @@ class BaseEmbeddingModelProvider:
         else:
             raise ValueError(f"Unknown embedding_class: {self.embedding_class}")
 
+    def _get_data_file_id(self):
+        """Get the data file identifier for this provider.
+
+        Returns data_file_id if set, otherwise converts id from
+        hyphens to underscores (e.g., 'all-minilm-l6' -> 'all_minilm_l6').
+        """
+        if self.data_file_id:
+            return self.data_file_id
+        return self.id.replace("-", "_") if self.id else None
+
     def get_itq_boundary(self):
-        """Phase 1: Not implemented yet."""
-        return None
+        """Load and return ITQ boundary data for this model.
+
+        Returns:
+            ITQData instance or None if not available/invalid
+        """
+        data_id = self._get_data_file_id()
+        if not data_id:
+            return None
+
+        itq_data = load_itq_data(data_id)
+        if itq_data is None:
+            return None
+
+        # Validate dimensions
+        if not validate_itq_data(itq_data, self.vector_dimensions, self.hash_length):
+            return None
+
+        return itq_data
 
     def get_pivot_data(self):
-        """Phase 1: Not implemented yet."""
-        return None
+        """Load and return pivot data for this model.
+
+        Returns:
+            PivotData instance or None if not available/invalid
+        """
+        data_id = self._get_data_file_id()
+        if not data_id:
+            return None
+
+        pivot_data = load_pivot_data(data_id)
+        if pivot_data is None:
+            return None
+
+        # Validate dimensions (default 8 pivots)
+        if not validate_pivot_data(pivot_data, self.vector_dimensions):
+            return None
+
+        return pivot_data
 
 
 # =============================================================================
@@ -230,6 +283,9 @@ class E5BaseMultilingualGPUProvider(BaseEmbeddingModelProvider):
     embedding_class = "SentenceTransformerEmbedding"
     query_prefix = "query: "
     passage_prefix = "passage: "
+
+    # Share ITQ/pivot data with CPU variant
+    data_file_id = "e5_base_multilingual"
 
     # Backend configuration
     backend = "sentence_transformers"

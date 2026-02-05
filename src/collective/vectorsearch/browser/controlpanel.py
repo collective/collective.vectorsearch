@@ -47,8 +47,26 @@ class VectorSearchControlPanelForm(RegistryEditForm):
             indexes = []
             for index_id in catalog.indexes():
                 index = catalog.Indexes.get(index_id)
-                if index is not None and IVectorIndex.providedBy(index):
+                if index is None:
+                    continue
+
+                # Check by interface first, fall back to meta_type
+                is_vector_index = IVectorIndex.providedBy(index)
+                meta_type = getattr(index, "meta_type", None)
+
+                # Fall back to meta_type check for existing indexes
+                # (interface may not be properly applied to pickled objects)
+                if not is_vector_index and meta_type == "VectorIndex":
+                    is_vector_index = True
+                    logger.debug(
+                        f"VectorIndex '{index_id}' detected by meta_type "
+                        "(interface not applied)"
+                    )
+
+                if is_vector_index:
                     indexes.append((index_id, index))
+
+            logger.debug(f"_get_vector_indexes found {len(indexes)} vector indexes")
             return indexes
         except Exception as e:
             logger.warning(f"Could not get vector indexes: {e}")
@@ -108,27 +126,49 @@ class VectorSearchControlPanelForm(RegistryEditForm):
     def vector_index_stats(self):
         """Get statistics for all vector indexes."""
         indexes = self._get_vector_indexes()
+        logger.debug(f"vector_index_stats: found {len(indexes)} indexes")
         current_model = self._get_current_model()
         stats = []
         for index_id, index in indexes:
             try:
                 indexed_model = index.getIndexedModel()
                 doc_count = index.numObjects()
+                vector_count = index.indexSize()
+                logger.debug(
+                    f"Index '{index_id}': doc_count={doc_count}, "
+                    f"vector_count={vector_count}, model={indexed_model}"
+                )
+
+                # Get ITQ/pivot stats if available
+                itq_pivot_stats = {}
+                if hasattr(index, "getITQPivotStats"):
+                    itq_pivot_stats = index.getITQPivotStats()
+
                 stats.append(
                     {
                         "id": index_id,
                         "document_count": doc_count,
-                        "vector_count": index.indexSize(),
+                        "vector_count": vector_count,
                         "indexed_model": indexed_model,
                         "is_compatible": (
                             doc_count == 0
                             or indexed_model is None
                             or indexed_model == current_model
                         ),
+                        "itq_hash_count": itq_pivot_stats.get("itq_hashes", 0),
+                        "itq_hash_chunks": itq_pivot_stats.get("itq_hashes_chunks", 0),
+                        "pivot_distance_count": itq_pivot_stats.get("pivot_distances", 0),
+                        "pivot_distance_chunks": itq_pivot_stats.get("pivot_distances_chunks", 0),
+                        "itq_data_available": itq_pivot_stats.get("itq_data_available", False),
+                        "pivot_data_available": itq_pivot_stats.get("pivot_data_available", False),
                     }
                 )
             except Exception as e:
-                logger.warning(f"Could not get stats for {index_id}: {e}")
+                import traceback
+
+                logger.warning(
+                    f"Could not get stats for {index_id}: {e}\n{traceback.format_exc()}"
+                )
                 stats.append(
                     {
                         "id": index_id,
@@ -136,9 +176,16 @@ class VectorSearchControlPanelForm(RegistryEditForm):
                         "vector_count": 0,
                         "indexed_model": None,
                         "is_compatible": True,
+                        "itq_hash_count": 0,
+                        "itq_hash_chunks": 0,
+                        "pivot_distance_count": 0,
+                        "pivot_distance_chunks": 0,
+                        "itq_data_available": False,
+                        "pivot_data_available": False,
                         "error": str(e),
                     }
                 )
+        logger.debug(f"vector_index_stats returning {len(stats)} stats entries")
         return stats
 
     @property
@@ -258,6 +305,45 @@ class VectorSearchControlPanelForm(RegistryEditForm):
             IStatusMessage(self.request).addStatusMessage(
                 _("No vector indexes found to clear."), "warning"
             )
+        self.request.response.redirect(self.request.getURL())
+
+    @button.buttonAndHandler(_("Recompute ITQ/Pivot"), name="recompute_itq")
+    def handleRecomputeITQ(self, action):
+        """Handle recompute ITQ hashes and pivot distances.
+
+        This recomputes ITQ/pivot data from existing vectors without
+        re-embedding the content. Useful when ITQ/pivot data files
+        have been updated or are out of sync.
+        """
+        indexes = self._get_vector_indexes()
+        total_recomputed = 0
+        total_errors = 0
+
+        for index_id, index in indexes:
+            try:
+                if hasattr(index, "clearAndRecomputeITQPivot"):
+                    result = index.clearAndRecomputeITQPivot()
+                    total_recomputed += result.get("recomputed", 0)
+                    total_errors += result.get("errors", 0)
+                    logger.info(f"Recomputed ITQ/pivot for index {index_id}: {result}")
+            except Exception as e:
+                logger.error(f"Failed to recompute ITQ/pivot for {index_id}: {e}")
+                total_errors += 1
+
+        if total_recomputed > 0:
+            IStatusMessage(self.request).addStatusMessage(
+                _(
+                    "Recomputed ITQ/pivot data for ${count} documents. "
+                    "Errors: ${errors}",
+                    mapping={"count": total_recomputed, "errors": total_errors},
+                ),
+                "info",
+            )
+        else:
+            IStatusMessage(self.request).addStatusMessage(
+                _("No documents found to recompute ITQ/pivot data."), "warning"
+            )
+
         self.request.response.redirect(self.request.getURL())
 
     @button.buttonAndHandler(_("Cancel"), name="cancel")

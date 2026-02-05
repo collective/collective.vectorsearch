@@ -81,5 +81,6 @@ setup(
     target = plone
     [console_scripts]
     update_locale = collective.vectorsearch.locales.update:update_locale
+    vectorsearch-download = collective.vectorsearch.offline:main
     """,
 )
