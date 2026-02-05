@@ -73,8 +73,8 @@ jobs:
         run: |
           tox -r
         env:
-          PLONE-VERSION: ${{ matrix.plone-version }}
-          PYTHON-VERSION: ${{ matrix.python-version }}
+          PLONE_VERSION: ${{ matrix.plone-version }}
+          PYTHON_VERSION: ${{ matrix.python-version }}
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
