@@ -81,14 +81,14 @@ class IVectorSearchSettings(Interface):
     pivot_threshold = schema.Int(
         title=_("Pivot Threshold (Stage 1)"),
         description=_(
-            "Threshold for pivot-based filtering in Stage 1. "
+            "Threshold for pivot-based filtering in Stage 1 (cosine distance x 1000). "
             "Higher values = more candidates retained. "
-            "Recommended: 20 (89.8% recall) or 15 (85.9% recall)."
+            "200 = 0.200 cosine distance."
         ),
-        default=20,
+        default=200,
         required=False,
         min=1,
-        max=100,
+        max=2000,
     )
 
     hamming_distance_threshold = schema.Int(

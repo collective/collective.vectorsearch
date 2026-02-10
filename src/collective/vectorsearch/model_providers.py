@@ -7,7 +7,14 @@ from zope.component import getUtilitiesFor
 from zope.interface import implementer
 
 from collective.vectorsearch import embedding as emb_module
+from collective.vectorsearch.data_loader import (
+    load_itq_data,
+    load_pivot_data,
+    validate_itq_data,
+    validate_pivot_data,
+)
 from collective.vectorsearch.interfaces import IEmbeddingModelProvider
+from collective.vectorsearch.vector_index import ModelCache
 
 logger = logging.getLogger("collective.vectorsearch")
 
@@ -15,6 +22,7 @@ logger = logging.getLogger("collective.vectorsearch")
 # Check for optional dependencies
 try:
     from fastembed import TextEmbedding  # noqa: F401
+    from fastembed.common.model_description import ModelSource, PoolingType
 
     HAS_FASTEMBED = True
 except ImportError:
@@ -36,6 +44,45 @@ def check_fastembed_available():
 def check_sentence_transformers_available():
     """Check if sentence_transformers (GPU support) is available."""
     return HAS_SENTENCE_TRANSFORMERS
+
+
+_CUSTOM_MODELS_REGISTERED = set()
+
+
+def _register_fastembed_custom_model(
+    model_name,
+    dim,
+    pooling,
+    normalization,
+    hf_source=None,
+    model_file="onnx/model.onnx",
+    additional_files=None,
+):
+    """Register a custom model with FastEmbed if not already registered.
+
+    Idempotent - safe to call multiple times.
+    """
+    if model_name in _CUSTOM_MODELS_REGISTERED:
+        return
+
+    if not HAS_FASTEMBED:
+        return
+
+    try:
+        TextEmbedding.add_custom_model(
+            model=model_name,
+            pooling=pooling,
+            normalization=normalization,
+            sources=ModelSource(hf=hf_source or model_name),
+            dim=dim,
+            model_file=model_file,
+            additional_files=additional_files or [],
+        )
+    except ValueError:
+        # Already registered (add_custom_model raises ValueError for duplicates)
+        pass
+
+    _CUSTOM_MODELS_REGISTERED.add(model_name)
 
 
 @implementer(IEmbeddingModelProvider)
@@ -65,6 +112,11 @@ class BaseEmbeddingModelProvider:
     embedding_class = "SentenceTransformerEmbedding"  # Default
     query_prefix = None
     passage_prefix = None
+
+    # Data file configuration
+    # If None, uses self.id with hyphens converted to underscores
+    # Multiple providers can share the same data_file_id (e.g., CPU/GPU variants)
+    data_file_id = None
 
     # Backend configuration
     backend = "sentence_transformers"  # 'fastembed' or 'sentence_transformers'
@@ -119,9 +171,6 @@ class BaseEmbeddingModelProvider:
 
         # Handle different initialization patterns
         if self.embedding_class == "SentenceTransformerEmbedding":
-            # Lazy import ModelCache to avoid requiring sentence_transformers
-            from collective.vectorsearch.vector_index import ModelCache
-
             cache = ModelCache()
             model = cache.get_model(self.model_name)
             return EmbeddingClass(
@@ -143,13 +192,55 @@ class BaseEmbeddingModelProvider:
         else:
             raise ValueError(f"Unknown embedding_class: {self.embedding_class}")
 
+    def _get_data_file_id(self):
+        """Get the data file identifier for this provider.
+
+        Returns data_file_id if set, otherwise converts id from
+        hyphens to underscores (e.g., 'all-minilm-l6' -> 'all_minilm_l6').
+        """
+        if self.data_file_id:
+            return self.data_file_id
+        return self.id.replace("-", "_") if self.id else None
+
     def get_itq_boundary(self):
-        """Phase 1: Not implemented yet."""
-        return None
+        """Load and return ITQ boundary data for this model.
+
+        Returns:
+            ITQData instance or None if not available/invalid
+        """
+        data_id = self._get_data_file_id()
+        if not data_id:
+            return None
+
+        itq_data = load_itq_data(data_id)
+        if itq_data is None:
+            return None
+
+        # Validate dimensions
+        if not validate_itq_data(itq_data, self.vector_dimensions, self.hash_length):
+            return None
+
+        return itq_data
 
     def get_pivot_data(self):
-        """Phase 1: Not implemented yet."""
-        return None
+        """Load and return pivot data for this model.
+
+        Returns:
+            PivotData instance or None if not available/invalid
+        """
+        data_id = self._get_data_file_id()
+        if not data_id:
+            return None
+
+        pivot_data = load_pivot_data(data_id)
+        if pivot_data is None:
+            return None
+
+        # Validate dimensions (default 8 pivots)
+        if not validate_pivot_data(pivot_data, self.vector_dimensions):
+            return None
+
+        return pivot_data
 
 
 # =============================================================================
@@ -188,6 +279,8 @@ class E5BaseMultilingualProvider(BaseEmbeddingModelProvider):
     """Provider for E5 Base Multilingual with FastEmbed.
 
     Multilingual model (100+ languages) with ONNX optimization for CPU.
+    Uses add_custom_model() to register with FastEmbed since this model
+    is not in FastEmbed's built-in supported list.
     """
 
     id = "e5-base-multilingual"
@@ -210,6 +303,29 @@ class E5BaseMultilingualProvider(BaseEmbeddingModelProvider):
     requires_gpu = False
     extras_name = None  # Default installation
 
+    def get_embedding_instance(
+        self, chunk_size=500, prefix_query=None, prefix_passage=None
+    ):
+        """Create FastEmbed embedding after registering custom model.
+
+        intfloat/multilingual-e5-base is not in FastEmbed's built-in model list,
+        but ONNX files exist on HuggingFace Hub. We register it as a custom model
+        before creating the embedding instance.
+        """
+        _register_fastembed_custom_model(
+            model_name=self.model_name,
+            dim=self.vector_dimensions,
+            pooling=PoolingType.MEAN,
+            normalization=True,
+            model_file="onnx/model.onnx",
+            additional_files=["sentencepiece.bpe.model"],
+        )
+        return super().get_embedding_instance(
+            chunk_size=chunk_size,
+            prefix_query=prefix_query,
+            prefix_passage=prefix_passage,
+        )
+
 
 class E5BaseMultilingualGPUProvider(BaseEmbeddingModelProvider):
     """Provider for E5 Base Multilingual with SentenceTransformers (GPU).
@@ -230,6 +346,9 @@ class E5BaseMultilingualGPUProvider(BaseEmbeddingModelProvider):
     embedding_class = "SentenceTransformerEmbedding"
     query_prefix = "query: "
     passage_prefix = "passage: "
+
+    # Share ITQ/pivot data with CPU variant
+    data_file_id = "e5_base_multilingual"
 
     # Backend configuration
     backend = "sentence_transformers"

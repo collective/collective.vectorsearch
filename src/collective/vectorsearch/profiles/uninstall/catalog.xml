@@ -1,4 +1,22 @@
 <?xml version="1.0"?>
 <object name="portal_catalog">
+  <!-- Remove VectorIndex -->
   <index name="llm_vector" remove="True"/>
+
+  <!-- Remove pivot distance indexes -->
+  <index name="pivot1" remove="True"/>
+  <index name="pivot2" remove="True"/>
+  <index name="pivot3" remove="True"/>
+  <index name="pivot4" remove="True"/>
+  <index name="pivot5" remove="True"/>
+  <index name="pivot6" remove="True"/>
+  <index name="pivot7" remove="True"/>
+  <index name="pivot8" remove="True"/>
+
+  <!-- Remove ITQ hash metadata columns -->
+  <!-- New format: single column with list of hashes -->
+  <column value="itq_hashes" remove="True"/>
+  <!-- Old format: remove if exists (for backwards compatibility) -->
+  <column value="itq_hash_high" remove="True"/>
+  <column value="itq_hash_low" remove="True"/>
 </object>

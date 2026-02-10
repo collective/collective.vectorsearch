@@ -37,8 +37,8 @@ class TestModelCache(unittest.TestCase):
         cache = ModelCache()
         result = cache.get_model("test-model")
 
-        # Should have called SentenceTransformer constructor
-        mock_transformer.assert_called_once_with("test-model")
+        # Should have called SentenceTransformer constructor (local_files_only first)
+        mock_transformer.assert_called_once_with("test-model", local_files_only=True)
         # Should return the model
         self.assertEqual(result, mock_model)
 
@@ -74,7 +74,7 @@ class TestModelCache(unittest.TestCase):
         mock_model2 = Mock(name="model2")
 
         # Return different models for different names
-        def mock_constructor(name):
+        def mock_constructor(name, **kwargs):
             if name == "model-1":
                 return mock_model1
             elif name == "model-2":

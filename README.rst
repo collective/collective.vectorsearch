@@ -184,6 +184,34 @@ Register it in your package's ``configure.zcml``::
         name="my-custom-model"
     />
 
+For detailed instructions including ITQ/pivot data support, see
+`docs/model-providers.rst <docs/model-providers.rst>`_.
+
+
+Approximate Nearest Neighbor Search
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+This package supports approximate search algorithms for faster similarity search:
+
+- **ITQ-LSH**: Binary hashing for fast Hamming distance comparison
+- **Pivot-based filtering**: Triangle inequality pruning
+
+Pre-computed ITQ and pivot data is included for the default embedding models.
+For details on how these work and how to generate data for custom models, see
+`docs/approximate-search.rst <docs/approximate-search.rst>`_.
+
+
+Offline Model Download
+~~~~~~~~~~~~~~~~~~~~~~
+
+FastEmbed downloads models on first use. For offline environments, pre-download
+models using the CLI command::
+
+    vectorsearch-download
+
+This downloads all supported models to ``~/.cache/fastembed``.
+Set ``FASTEMBED_CACHE_PATH`` environment variable to use a different location.
+
 
 Important Notes
 ---------------

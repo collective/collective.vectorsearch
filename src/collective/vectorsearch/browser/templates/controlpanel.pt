@@ -110,6 +110,8 @@
                 <th i18n:translate="">Index Name</th>
                 <th i18n:translate="">Documents</th>
                 <th i18n:translate="">Vectors</th>
+                <th i18n:translate="">ITQ Hashes</th>
+                <th i18n:translate="">Pivot Dist.</th>
                 <th i18n:translate="">Indexed With</th>
                 <th i18n:translate="">Status</th>
               </tr>
@@ -119,6 +121,28 @@
                 <td tal:content="stat/id">Index ID</td>
                 <td tal:content="stat/document_count">0</td>
                 <td tal:content="stat/vector_count">0</td>
+                <td>
+                  <tal:has-itq tal:condition="stat/itq_data_available">
+                    <span tal:content="stat/itq_hash_count">0</span>
+                    <small style="color: #666;">
+                      (<span tal:content="stat/itq_hash_chunks">0</span> chunks)
+                    </small>
+                  </tal:has-itq>
+                  <tal:no-itq tal:condition="not:stat/itq_data_available">
+                    <em i18n:translate="" style="color: #999;">N/A</em>
+                  </tal:no-itq>
+                </td>
+                <td>
+                  <tal:has-pivot tal:condition="stat/pivot_data_available">
+                    <span tal:content="stat/pivot_distance_count">0</span>
+                    <small style="color: #666;">
+                      (<span tal:content="stat/pivot_distance_chunks">0</span> chunks)
+                    </small>
+                  </tal:has-pivot>
+                  <tal:no-pivot tal:condition="not:stat/pivot_data_available">
+                    <em i18n:translate="" style="color: #999;">N/A</em>
+                  </tal:no-pivot>
+                </td>
                 <td>
                   <tal:has-model tal:condition="stat/indexed_model">
                     <code tal:content="stat/indexed_model">model</code>
@@ -142,11 +166,11 @@
 
           <p class="discreet">
             <strong i18n:translate="">Total:</strong>
-            <span tal:content="view/form_instance/total_indexes">0</span>
+            <span tal:content="python:len(stats)">0</span>
             <span i18n:translate="">index(es),</span>
-            <span tal:content="view/form_instance/total_documents">0</span>
+            <span tal:content="python:sum(s['document_count'] for s in stats)">0</span>
             <span i18n:translate="">documents,</span>
-            <span tal:content="view/form_instance/total_vectors">0</span>
+            <span tal:content="python:sum(s['vector_count'] for s in stats)">0</span>
             <span i18n:translate="">vectors</span>
           </p>
         </tal:has-stats>

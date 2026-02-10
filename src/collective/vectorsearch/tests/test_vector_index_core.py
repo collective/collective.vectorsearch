@@ -129,7 +129,7 @@ class TestVectorIndexCore(unittest.TestCase):
         index = VectorIndex("test_index")
 
         # Add some dummy data
-        index._docvectors[1] = np.array([[1.0, 2.0, 3.0]])
+        index._docid_to_path[1] = "/plone/doc1"
         index.length.change(1)
         index.document_count.change(1)
 
@@ -139,7 +139,7 @@ class TestVectorIndexCore(unittest.TestCase):
         # Verify it's reset
         self.assertEqual(index.numObjects(), 0)
         self.assertEqual(index.indexSize(), 0)
-        self.assertEqual(len(index._docvectors), 0)
+        self.assertEqual(len(index._docid_to_path), 0)
 
     def test_get_settings_with_registry_error(self):
         """Test _get_settings falls back to defaults on registry error."""
@@ -159,3 +159,176 @@ class TestVectorIndexCore(unittest.TestCase):
             self.assertEqual(settings["embedding_model"], "all-minilm-l6")
             self.assertEqual(settings["embedding_chunk_size"], 500)
             self.assertEqual(settings["approximation_algorithm"], "exhaustive_cosine")
+
+
+class TestVectorIndexITQPivot(unittest.TestCase):
+    """Test ITQ hash and pivot distance functionality."""
+
+    def test_get_itq_hash_returns_none_for_missing(self):
+        """Test getITQHash returns None for non-existent document."""
+        from collective.vectorsearch.vector_index import VectorIndex
+
+        index = VectorIndex("test_index")
+
+        result = index.getITQHash(999)
+        self.assertIsNone(result)
+
+    def test_get_pivot_distances_returns_none_for_missing(self):
+        """Test getPivotDistances returns None for non-existent document."""
+        from collective.vectorsearch.vector_index import VectorIndex
+
+        index = VectorIndex("test_index")
+
+        result = index.getPivotDistances(999)
+        self.assertIsNone(result)
+
+    def test_get_pivot_distance_returns_none_for_missing(self):
+        """Test getPivotDistance returns None for non-existent document."""
+        from collective.vectorsearch.vector_index import VectorIndex
+
+        index = VectorIndex("test_index")
+
+        result = index.getPivotDistance(999, 0)
+        self.assertIsNone(result)
+
+    def test_clear_also_clears_path_mapping(self):
+        """Test clear method clears _docid_to_path mapping."""
+        from collective.vectorsearch.vector_index import VectorIndex
+
+        index = VectorIndex("test_index")
+
+        # Add some dummy data
+        index._docid_to_path[1] = "/plone/doc1"
+        index.length.change(1)
+        index.document_count.change(1)
+
+        # Clear the index
+        index.clear()
+
+        # Verify data is cleared
+        self.assertEqual(len(index._docid_to_path), 0)
+
+    def test_is_model_consistent_empty_index(self):
+        """Test isModelConsistent returns True for empty index."""
+        from collective.vectorsearch.vector_index import VectorIndex
+
+        with patch(
+            "collective.vectorsearch.vector_index.api.portal.get_registry_record"
+        ) as mock_registry:
+            mock_registry.return_value = "all-minilm-l6"
+
+            index = VectorIndex("test_index")
+
+            # Empty index should be consistent
+            self.assertTrue(index.isModelConsistent())
+
+    def test_get_itq_pivot_stats_basic(self):
+        """Test getITQPivotStats returns basic statistics."""
+        from collective.vectorsearch.vector_index import VectorIndex
+
+        mock_provider = Mock()
+        mock_provider.get_embedding_instance.return_value = Mock()
+        mock_provider.get_itq_boundary.return_value = Mock()
+        mock_provider.get_pivot_data.return_value = Mock()
+        mock_provider.query_prefix = None
+        mock_provider.passage_prefix = None
+
+        with patch(
+            "collective.vectorsearch.vector_index.queryUtility",
+            return_value=mock_provider,
+        ):
+            index = VectorIndex("test_index")
+            index.length.change(1)
+            index.document_count.change(1)
+
+            # getITQPivotStats reads from catalog, which is not available
+            # in unit tests. Just verify it returns a dict without errors.
+            with patch("collective.vectorsearch.vector_index.api.portal.get_tool"):
+                stats = index.getITQPivotStats()
+
+            self.assertEqual(stats["documents"], 1)
+            self.assertEqual(stats["vectors"], 1)
+            self.assertTrue(stats["itq_data_available"])
+            self.assertTrue(stats["pivot_data_available"])
+
+
+class TestIndexerUtilities(unittest.TestCase):
+    """Test indexer utility functions."""
+
+    def test_binary_hash_to_integers(self):
+        """Test binary_hash_to_integers conversion."""
+        from collective.vectorsearch.indexers import binary_hash_to_integers
+
+        # Create a known binary hash
+        binary_hash = np.zeros(128, dtype=np.uint8)
+        binary_hash[0] = 1  # First bit of high
+
+        high, low = binary_hash_to_integers(binary_hash)
+
+        self.assertEqual(high, 1 << 63)
+        self.assertEqual(low, 0)
+
+    def test_integers_to_binary_hash(self):
+        """Test integers_to_binary_hash conversion."""
+        from collective.vectorsearch.indexers import integers_to_binary_hash
+
+        high = 1 << 63
+        low = 1 << 63
+
+        binary_hash = integers_to_binary_hash(high, low)
+
+        self.assertEqual(binary_hash[0], 1)
+        self.assertEqual(binary_hash[64], 1)
+        self.assertEqual(np.sum(binary_hash), 2)
+
+    def test_compute_hamming_distance(self):
+        """Test compute_hamming_distance function."""
+        from collective.vectorsearch.indexers import compute_hamming_distance
+
+        # Same hashes should have distance 0
+        distance = compute_hamming_distance(123, 456, 123, 456)
+        self.assertEqual(distance, 0)
+
+        # All bits different
+        high1 = 0
+        low1 = 0
+        high2 = (1 << 64) - 1
+        low2 = (1 << 64) - 1
+
+        distance = compute_hamming_distance(high1, low1, high2, low2)
+        self.assertEqual(distance, 128)
+
+    def test_distance_to_index_value(self):
+        """Test distance_to_index_value conversion."""
+        from collective.vectorsearch.indexers import distance_to_index_value
+
+        # 0.5 should become 500 with default scale
+        result = distance_to_index_value(0.5)
+        self.assertEqual(result, 500)
+
+        # 1.234 should become 1234
+        result = distance_to_index_value(1.234)
+        self.assertEqual(result, 1234)
+
+    def test_index_value_to_distance(self):
+        """Test index_value_to_distance conversion."""
+        from collective.vectorsearch.indexers import index_value_to_distance
+
+        # 500 should become 0.5
+        result = index_value_to_distance(500)
+        self.assertEqual(result, 0.5)
+
+    def test_get_pivot_range_for_threshold(self):
+        """Test get_pivot_range_for_threshold function."""
+        from collective.vectorsearch.indexers import get_pivot_range_for_threshold
+
+        min_val, max_val = get_pivot_range_for_threshold(500, 200)
+
+        self.assertEqual(min_val, 300)
+        self.assertEqual(max_val, 700)
+
+        # Edge case: min should not go below 0
+        min_val, max_val = get_pivot_range_for_threshold(100, 200)
+
+        self.assertEqual(min_val, 0)
+        self.assertEqual(max_val, 300)
