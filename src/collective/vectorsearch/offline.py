@@ -69,10 +69,10 @@ def download_model(model_name: str, cache_dir: Optional[Path] = None) -> Path:
     """
     try:
         from fastembed import TextEmbedding
-    except ImportError:
+    except ImportError as err:
         raise ImportError(
             "fastembed is not installed. Install it with: pip install fastembed"
-        )
+        ) from err
 
     cache_dir = cache_dir or get_cache_dir()
     os.environ["FASTEMBED_CACHE_PATH"] = str(cache_dir)

@@ -10,10 +10,10 @@ class TestAnnotationKeys(unittest.TestCase):
     def test_annotation_keys_defined(self):
         """Test that all annotation keys are defined."""
         from collective.vectorsearch.annotations import (
-            ANNOTATION_KEY_VECTORS,
             ANNOTATION_KEY_ITQ_HASHES,
-            ANNOTATION_KEY_PIVOT_DISTANCES,
             ANNOTATION_KEY_MODEL_ID,
+            ANNOTATION_KEY_PIVOT_DISTANCES,
+            ANNOTATION_KEY_VECTORS,
         )
 
         self.assertEqual(ANNOTATION_KEY_VECTORS, "collective.vectorsearch.vectors")
@@ -49,11 +49,11 @@ class TestAnnotationHelpers(unittest.TestCase):
     def test_get_vector_data_returns_dict_when_vectors_exist(self):
         """Test get_vector_data returns dict when vectors exist."""
         from collective.vectorsearch.annotations import (
-            get_vector_data,
-            ANNOTATION_KEY_VECTORS,
             ANNOTATION_KEY_ITQ_HASHES,
-            ANNOTATION_KEY_PIVOT_DISTANCES,
             ANNOTATION_KEY_MODEL_ID,
+            ANNOTATION_KEY_PIVOT_DISTANCES,
+            ANNOTATION_KEY_VECTORS,
+            get_vector_data,
         )
 
         mock_annotations = {
@@ -75,8 +75,8 @@ class TestAnnotationHelpers(unittest.TestCase):
     def test_get_vectors_returns_vectors(self):
         """Test get_vectors returns vectors list."""
         from collective.vectorsearch.annotations import (
-            get_vectors,
             ANNOTATION_KEY_VECTORS,
+            get_vectors,
         )
 
         mock_annotations = {
@@ -91,8 +91,8 @@ class TestAnnotationHelpers(unittest.TestCase):
     def test_get_itq_hashes_returns_hashes(self):
         """Test get_itq_hashes returns ITQ hashes."""
         from collective.vectorsearch.annotations import (
-            get_itq_hashes,
             ANNOTATION_KEY_ITQ_HASHES,
+            get_itq_hashes,
         )
 
         mock_annotations = {
@@ -107,8 +107,8 @@ class TestAnnotationHelpers(unittest.TestCase):
     def test_get_pivot_distances_returns_distances(self):
         """Test get_pivot_distances returns pivot distances."""
         from collective.vectorsearch.annotations import (
-            get_pivot_distances,
             ANNOTATION_KEY_PIVOT_DISTANCES,
+            get_pivot_distances,
         )
 
         mock_annotations = {
@@ -123,8 +123,8 @@ class TestAnnotationHelpers(unittest.TestCase):
     def test_get_model_id_returns_model(self):
         """Test get_model_id returns model ID."""
         from collective.vectorsearch.annotations import (
-            get_model_id,
             ANNOTATION_KEY_MODEL_ID,
+            get_model_id,
         )
 
         mock_annotations = {
@@ -139,11 +139,10 @@ class TestAnnotationHelpers(unittest.TestCase):
     def test_set_vector_data_stores_in_annotations(self):
         """Test set_vector_data stores data in annotations."""
         from collective.vectorsearch.annotations import (
-            set_vector_data,
-            ANNOTATION_KEY_VECTORS,
             ANNOTATION_KEY_ITQ_HASHES,
-            ANNOTATION_KEY_PIVOT_DISTANCES,
             ANNOTATION_KEY_MODEL_ID,
+            ANNOTATION_KEY_VECTORS,
+            set_vector_data,
         )
 
         mock_annotations = {}
@@ -166,9 +165,10 @@ class TestAnnotationHelpers(unittest.TestCase):
     def test_set_vector_data_converts_numpy_arrays(self):
         """Test set_vector_data converts numpy arrays to lists."""
         import numpy as np
+
         from collective.vectorsearch.annotations import (
-            set_vector_data,
             ANNOTATION_KEY_VECTORS,
+            set_vector_data,
         )
 
         mock_annotations = {}
@@ -192,11 +192,11 @@ class TestAnnotationHelpers(unittest.TestCase):
     def test_clear_vector_data_removes_all_keys(self):
         """Test clear_vector_data removes all annotation keys."""
         from collective.vectorsearch.annotations import (
-            clear_vector_data,
-            ANNOTATION_KEY_VECTORS,
             ANNOTATION_KEY_ITQ_HASHES,
-            ANNOTATION_KEY_PIVOT_DISTANCES,
             ANNOTATION_KEY_MODEL_ID,
+            ANNOTATION_KEY_PIVOT_DISTANCES,
+            ANNOTATION_KEY_VECTORS,
+            clear_vector_data,
         )
 
         mock_annotations = {
@@ -219,8 +219,8 @@ class TestAnnotationHelpers(unittest.TestCase):
     def test_has_vector_data_returns_true_when_vectors_exist(self):
         """Test has_vector_data returns True when vectors exist."""
         from collective.vectorsearch.annotations import (
-            has_vector_data,
             ANNOTATION_KEY_VECTORS,
+            has_vector_data,
         )
 
         mock_annotations = {
