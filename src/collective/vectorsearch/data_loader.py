@@ -108,13 +108,14 @@ class PivotData:
             Distances array with shape (num_pivots,)
             Values are cosine distances (1 - cosine_similarity)
         """
-        from sklearn.metrics.pairwise import cosine_similarity
-
         if embedding.ndim == 1:
             embedding = embedding.reshape(1, -1)
 
-        # cosine_similarity returns (1, num_pivots), we want (num_pivots,)
-        similarity = cosine_similarity(embedding, self.pivots)[0]
+        # Cosine similarity using numpy: dot(a, b) / (||a|| * ||b||)
+        dot_products = (embedding @ self.pivots.T)[0]  # (num_pivots,)
+        embedding_norm = np.linalg.norm(embedding[0])
+        pivot_norms = np.linalg.norm(self.pivots, axis=1)  # (num_pivots,)
+        similarity = dot_products / (embedding_norm * pivot_norms)
         return 1 - similarity  # distance = 1 - similarity
 
     def filter_candidates(
