@@ -7,8 +7,8 @@ from AccessControl.SecurityInfo import ClassSecurityInfo
 from Acquisition import Implicit
 from App.special_dtml import DTMLFile
 from BTrees.IIBTree import IIBucket
-from BTrees.IOBTree import IOBTree
 from BTrees.Length import Length
+from BTrees.OOBTree import OOBTree
 from OFS.SimpleItem import SimpleItem
 from Persistence import Persistent
 from Products.PluginIndexes.interfaces import IQueryIndex
@@ -23,8 +23,25 @@ except ImportError:
 import numpy as np
 from plone import api
 
+from collective.vectorsearch.annotations import (
+    clear_vector_data,
+    has_vector_data,
+)
+from collective.vectorsearch.annotations import (
+    get_itq_hashes as get_itq_hashes_from_annotations,
+)
+from collective.vectorsearch.annotations import (
+    get_model_id as get_model_id_from_annotations,
+)
+from collective.vectorsearch.annotations import (
+    get_pivot_distances as get_pivot_distances_from_annotations,
+)
+from collective.vectorsearch.annotations import (
+    get_vectors as get_vectors_from_annotations,
+)
 from collective.vectorsearch.interfaces import IEmbeddingModelProvider, IVectorIndex
 from collective.vectorsearch.similarity_algorithm import CosineSimilarityAlgorithm
+from collective.vectorsearch.subscribers import compute_and_store_vectors
 
 # Optional: sentence_transformers for GPU support
 try:
@@ -76,7 +93,18 @@ class ModelCache:
 
         if model_name not in self._models:
             logger.info(f"Loading model '{model_name}' into cache")
-            self._models[model_name] = SentenceTransformer(model_name)
+            # Try local-only first to avoid HTTP requests to HuggingFace Hub.
+            # Falls back to network access if local loading fails for any
+            # reason (not downloaded, corrupted cache, JSON parse errors, etc.)
+            try:
+                self._models[model_name] = SentenceTransformer(
+                    model_name, local_files_only=True
+                )
+            except Exception:
+                logger.info(
+                    f"Model '{model_name}' local load failed, trying with network access..."
+                )
+                self._models[model_name] = SentenceTransformer(model_name)
         else:
             logger.debug(f"Using cached model '{model_name}'")
         return self._models[model_name]
@@ -122,19 +150,13 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
 
     def __init__(self, id, extra=None, *args, **kwargs):
         self.id = id
-        self._docvectors = IOBTree()
+
+        # Document tracking (docid -> path mapping)
+        self._docid_to_path = OOBTree()
         self.length = Length()
         self.document_count = Length()
         # Track which model was used to create vectors (None = no vectors yet)
         self.indexed_with_model = None
-
-        # Storage for ITQ hashes (128-bit as two 64-bit integers)
-        # Key: docid, Value: (high_64bit, low_64bit)
-        self._itq_hashes = IOBTree()
-
-        # Storage for pivot distances (8 integer values per document)
-        # Key: docid, Value: tuple of 8 integers (distance * 1000)
-        self._pivot_distances = IOBTree()
 
         # Handle indexed_attrs from extra parameter
         if extra is not None and isinstance(extra, dict):
@@ -248,7 +270,7 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
                     default="exhaustive_cosine",
                 ),
                 "pivot_threshold": registry(
-                    "collective.vectorsearch.pivot_threshold", default=20
+                    "collective.vectorsearch.pivot_threshold", default=200
                 ),
                 "hamming_distance_threshold": registry(
                     "collective.vectorsearch.hamming_distance_threshold", default=3
@@ -291,7 +313,7 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
             "storage_backend": "btrees",
             "external_db_uri": "",
             "approximation_algorithm": "exhaustive_cosine",
-            "pivot_threshold": 20,
+            "pivot_threshold": 200,
             "hamming_distance_threshold": 3,
         }
 
@@ -305,212 +327,177 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
     security.declareProtected(manage_zcatalog_indexes, "index_object")
 
     def index_object(self, documentId, obj, threshold=None):
-        count = 0
-        if SearchableText is not None:
-            try:
-                text = SearchableText(obj)
-                row = self.index_doc(documentId, text)
-                count += row
-            except Exception as e:
-                logger.warning(
-                    "Failed to index SearchableText for document %s: %s", documentId, e
-                )
-        fields = self.getIndexSourceNames()
-        for field in fields:
-            try:
-                value = getattr(obj, field, None)
-                if value is not None:
-                    row = self.index_doc(documentId, value)
-                    count += row
-            except Exception as e:
-                logger.warning(
-                    "Failed to index field '%s' for document %s: %s",
-                    field,
-                    documentId,
-                    e,
-                )
+        """Index a content object.
+
+        This method:
+        1. Computes embeddings and stores them in annotations (if not already present,
+           or if the embedding model has changed since last computation)
+        2. Calls index_doc() to register the document in VectorIndex
+
+        By computing and storing in annotations HERE (before index_doc and before
+        other indexers like pivot1-8 run), we ensure that annotation data is
+        available for all indexers within the same catalog_object() call.
+        """
+        # Step 1: Ensure annotations are populated with vector data
+        # This must happen BEFORE index_doc() and before pivot/itq indexers
+        try:
+            needs_compute = not has_vector_data(obj)
+
+            if not needs_compute:
+                # Check if the model has changed since last computation
+                annotation_model = get_model_id_from_annotations(obj)
+                settings = self._get_settings()
+                current_model = settings.get("embedding_model", "all-minilm-l6")
+                if annotation_model and annotation_model != current_model:
+                    needs_compute = True
+
+            if needs_compute:
+                compute_and_store_vectors(obj)
+        except Exception as e:
+            logger.warning(
+                "Failed to compute vectors for document %s: %s", documentId, e
+            )
+
+        # Step 2: Index the document (reads from annotations)
+        count = self.index_doc(documentId, obj)
         return count  # Number of vector rows
 
-    def index_doc(self, docid, text):
-        # Skip empty or invalid text
-        if not text or not isinstance(text, str):
-            logger.debug("Skipping empty or invalid text for document %s", docid)
+    def index_doc(self, docid, obj_or_text):
+        """Index a document using pre-computed vectors from annotations.
+
+        Reads vectors from content annotations (pre-computed by index_object
+        or event subscriber). Updates internal counts and path mapping.
+
+        Args:
+            docid: Document ID (RID from catalog)
+            obj_or_text: Content object or text string.
+                         If a content object, reads annotations directly.
+                         If a text string, looks up the object by docid.
+
+        Returns:
+            int: Number of vector chunks indexed, or 0 if no vectors found
+        """
+        # Determine the content object
+        if hasattr(obj_or_text, "getPhysicalPath"):
+            obj = obj_or_text
+        else:
+            obj = self._get_object_for_docid(docid)
+
+        if obj is None:
+            logger.debug(f"Could not find object for docid {docid}")
             return 0
 
-        # Try to embed FIRST, before modifying any data
-        # This ensures we don't corrupt counts if embedding fails
-        try:
-            vectors = self.embedding.embed(text)
-        except Exception as e:
-            logger.error("Failed to embed text for document %s: %s", docid, e)
-            # Don't touch existing data if embedding fails
+        # Read vectors from annotations
+        vectors_list = get_vectors_from_annotations(obj)
+        if not vectors_list:
+            logger.debug(f"No vectors in annotations for docid {docid}")
             return 0
 
-        # Only update counts AFTER successful embedding
-        old_vectors = self._docvectors.get(docid, None)
-        if old_vectors is not None:
+        # Convert lists to numpy array
+        vectors = np.array(vectors_list)
+        if vectors.size == 0:
+            return 0
+
+        # Get object path for tracking
+        path = "/".join(obj.getPhysicalPath())
+
+        # Update counts - handle existing document
+        if hasattr(self, "_docid_to_path") and docid in self._docid_to_path:
+            # Get old chunk count from metadata or use new count as estimate
+            old_row = len(vectors_list)
+            try:
+                catalog = api.portal.get_tool("portal_catalog")
+                metadata = catalog.getMetadataForRID(docid)
+                old_vectors = metadata.get("llm_vector") if metadata else None
+                if old_vectors:
+                    old_row = len(old_vectors)
+            except Exception:
+                pass
             self._change_length("document_count", -1)
-            old_row, old_col = old_vectors.shape
             self._change_length("length", -old_row)
 
-        row, col = vectors.shape
+        # Update counts with new data
+        row = len(vectors_list)
         self._change_length("document_count", 1)
         self._change_length("length", row)
-        self._docvectors[docid] = vectors
 
-        # Track which model was used and detect model changes
-        settings = self._get_settings()
-        current_model = settings.get("embedding_model", "all-minilm-l6")
-        previous_model = getattr(self, "indexed_with_model", None)
+        # Ensure _docid_to_path exists
+        if not hasattr(self, "_docid_to_path"):
+            self._docid_to_path = OOBTree()
 
-        if previous_model is None:
-            # First document being indexed
-            self.indexed_with_model = current_model
-        elif previous_model != current_model:
-            # Model has changed - clear ITQ/pivot data and update tracking
-            logger.warning(
-                f"Embedding model changed from '{previous_model}' to '{current_model}'. "
-                "ITQ/pivot data has been cleared. Consider running a full reindex."
-            )
-            self._clear_itq_pivot_data()
-            self.indexed_with_model = current_model
+        # Store path mapping
+        self._docid_to_path[docid] = path
 
-        # Compute and store ITQ hash and pivot distances for all chunks
-        self._compute_and_store_itq_pivot_all(docid, vectors)
+        # Track which model was used
+        model_id = get_model_id_from_annotations(obj)
+        if model_id:
+            self.indexed_with_model = model_id
 
         return row
 
+    def _get_object_for_docid(self, docid):
+        """Get content object from document ID (RID).
+
+        Args:
+            docid: Document ID (RID from catalog)
+
+        Returns:
+            Content object, or None if not found
+        """
+        try:
+            catalog = api.portal.get_tool("portal_catalog")
+            path = catalog.getpath(docid)
+            portal = api.portal.get()
+            obj = portal.unrestrictedTraverse(path, None)
+            return obj
+        except Exception as e:
+            logger.debug(f"Could not get object for docid {docid}: {e}")
+            return None
+
     def _clear_itq_pivot_data(self):
-        """Clear all ITQ hashes and pivot distances.
+        """Clear all ITQ hashes and pivot distances from annotations.
 
         Called when the embedding model changes, as the previous
         ITQ/pivot data is no longer valid.
         """
-        if hasattr(self, "_itq_hashes"):
-            self._itq_hashes = IOBTree()
-        if hasattr(self, "_pivot_distances"):
-            self._pivot_distances = IOBTree()
+        if hasattr(self, "_docid_to_path"):
+            portal = api.portal.get()
+            for _docid, path in self._docid_to_path.items():
+                try:
+                    obj = portal.unrestrictedTraverse(path, None)
+                    if obj:
+                        clear_vector_data(obj)
+                except Exception:
+                    continue
         logger.info("Cleared ITQ hashes and pivot distances due to model change")
-
-    def _compute_and_store_itq_pivot_all(self, docid, vectors):
-        """Compute and store ITQ hashes and pivot distances for all chunks.
-
-        Args:
-            docid: Document ID
-            vectors: numpy array of embedding vectors (one per chunk)
-        """
-        # Ensure ITQ/pivot data BTrees exist (for existing indexes without them)
-        if not hasattr(self, "_itq_hashes"):
-            self._itq_hashes = IOBTree()
-        if not hasattr(self, "_pivot_distances"):
-            self._pivot_distances = IOBTree()
-
-        # Get ITQ data from model provider
-        # Use hasattr to support older model providers without these methods
-        if self.model_provider is None:
-            logger.warning(f"model_provider is None for doc {docid}, skipping ITQ/pivot")
-            return
-
-        provider_class = self.model_provider.__class__.__name__
-        num_chunks = len(vectors)
-        logger.info(f"Computing ITQ/pivot for doc {docid} ({num_chunks} chunks) using {provider_class}")
-
-        # Compute ITQ hashes for all chunks
-        itq_hashes_list = []
-        if hasattr(self.model_provider, "get_itq_boundary"):
-            itq_data = self.model_provider.get_itq_boundary()
-            if itq_data is not None:
-                for i, vector in enumerate(vectors):
-                    try:
-                        binary_hash = itq_data.compute_hash(vector)
-                        high, low = self._binary_hash_to_integers(binary_hash)
-                        itq_hashes_list.append((high, low))
-                    except Exception as e:
-                        logger.warning(f"Failed to compute ITQ hash for doc {docid} chunk {i}: {e}")
-                if itq_hashes_list:
-                    self._itq_hashes[docid] = tuple(itq_hashes_list)
-                    logger.info(f"Stored {len(itq_hashes_list)} ITQ hashes for doc {docid}")
-            else:
-                logger.warning(f"ITQ data is None for {provider_class}")
-        else:
-            logger.warning(f"{provider_class} has no get_itq_boundary method")
-
-        # Compute pivot distances for all chunks
-        pivot_distances_list = []
-        if hasattr(self.model_provider, "get_pivot_data"):
-            pivot_data = self.model_provider.get_pivot_data()
-            if pivot_data is not None:
-                for i, vector in enumerate(vectors):
-                    try:
-                        distances = pivot_data.compute_distances(vector)
-                        # Convert to integers (distance * 1000)
-                        int_distances = tuple(int(round(d * 1000)) for d in distances)
-                        pivot_distances_list.append(int_distances)
-                    except Exception as e:
-                        logger.warning(f"Failed to compute pivot distances for doc {docid} chunk {i}: {e}")
-                if pivot_distances_list:
-                    self._pivot_distances[docid] = tuple(pivot_distances_list)
-                    logger.info(f"Stored pivot distances for {len(pivot_distances_list)} chunks of doc {docid}")
-            else:
-                logger.warning(f"Pivot data is None for {provider_class}")
-        else:
-            logger.warning(f"{provider_class} has no get_pivot_data method")
-
-    def _binary_hash_to_integers(self, binary_hash):
-        """Convert 128-bit binary hash to two 64-bit integers.
-
-        Args:
-            binary_hash: numpy array of 128 uint8 values (0 or 1)
-
-        Returns:
-            tuple: (high_64bits, low_64bits) as Python integers
-        """
-        if binary_hash is None or len(binary_hash) != 128:
-            return None, None
-
-        high_bits = binary_hash[:64]
-        low_bits = binary_hash[64:]
-
-        high_int = 0
-        low_int = 0
-
-        for i, bit in enumerate(high_bits):
-            if bit:
-                high_int |= 1 << (63 - i)
-
-        for i, bit in enumerate(low_bits):
-            if bit:
-                low_int |= 1 << (63 - i)
-
-        return high_int, low_int
 
     security.declareProtected(manage_zcatalog_indexes, "unindex_object")
 
     def unindex_object(self, docid):
-        old_vectors = self._docvectors.get(docid, None)
-        if old_vectors is not None:
+        old_chunk_count = 0
+
+        # Get chunk count from catalog metadata
+        if hasattr(self, "_docid_to_path") and docid in self._docid_to_path:
+            try:
+                catalog = api.portal.get_tool("portal_catalog")
+                metadata = catalog.getMetadataForRID(docid)
+                if metadata:
+                    vectors_list = metadata.get("llm_vector")
+                    if vectors_list:
+                        old_chunk_count = len(vectors_list)
+            except Exception:
+                pass
+
+            # Remove from path mapping
+            try:
+                del self._docid_to_path[docid]
+            except KeyError:
+                pass
+
+        # Update counts
+        if old_chunk_count > 0:
             self._change_length("document_count", -1)
-            old_row, old_col = old_vectors.shape
-            self._change_length("length", -old_row)
-            try:
-                del self._docvectors[docid]
-            except KeyError:
-                logger.warning(
-                    "Document %s not found in index during unindexing", docid
-                )
-
-        # Also remove ITQ hash and pivot distances
-        if hasattr(self, "_itq_hashes") and docid in self._itq_hashes:
-            try:
-                del self._itq_hashes[docid]
-            except KeyError:
-                pass
-
-        if hasattr(self, "_pivot_distances") and docid in self._pivot_distances:
-            try:
-                del self._pivot_distances[docid]
-            except KeyError:
-                pass
+            self._change_length("length", -old_chunk_count)
 
     def _apply_index(self, request):
         """Apply the index to a search request.
@@ -558,12 +545,42 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
         return bucket
 
     def _get_all_doc_vectors(self):
-        items = list(self._docvectors.items())
-        if not items:
-            # Return empty arrays if no documents are indexed
+        """Get all document vectors for search.
+
+        Reads vectors from catalog metadata (no object traversal).
+
+        Returns:
+            tuple: (docids, vectors) numpy arrays
+        """
+        all_docids = []
+        all_vectors = []
+
+        if hasattr(self, "_docid_to_path") and len(self._docid_to_path) > 0:
+            try:
+                catalog = api.portal.get_tool("portal_catalog")
+            except Exception:
+                catalog = None
+
+            for docid in self._docid_to_path:
+                try:
+                    vectors_list = None
+                    if catalog:
+                        metadata = catalog.getMetadataForRID(docid)
+                        if metadata:
+                            vectors_list = metadata.get("llm_vector")
+                    if vectors_list:
+                        vectors = np.array(vectors_list)
+                        all_docids.extend([docid] * len(vectors))
+                        all_vectors.append(vectors)
+                except Exception as e:
+                    logger.debug(f"Could not get vectors for docid {docid}: {e}")
+                    continue
+
+        if not all_vectors:
             return np.array([], dtype=int), np.array([]).reshape(0, 0)
-        vectors = np.concatenate([v for k, v in items])
-        docids = np.concatenate([[k] * v.shape[0] for k, v in items])
+
+        vectors = np.concatenate(all_vectors)
+        docids = np.array(all_docids, dtype=int)
         return docids, vectors
 
     security.declareProtected(search_zcatalog, "getEntryForObject")
@@ -571,10 +588,27 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
     def getEntryForObject(self, documentId, default=None):
         """Get the index entry for a specific document.
 
+        Reads vectors from catalog metadata.
+
         Returns the vector embedding for the document if it exists.
         """
         start_time = time.perf_counter()
-        result = self._docvectors.get(documentId, default)
+        result = None
+
+        if hasattr(self, "_docid_to_path") and documentId in self._docid_to_path:
+            try:
+                catalog = api.portal.get_tool("portal_catalog")
+                metadata = catalog.getMetadataForRID(documentId)
+                if metadata:
+                    vectors_list = metadata.get("llm_vector")
+                    if vectors_list:
+                        result = np.array(vectors_list)
+            except Exception as e:
+                logger.debug(f"Could not get vectors from metadata: {e}")
+
+        if result is None:
+            result = default
+
         elapsed = time.perf_counter() - start_time
         logger.debug(
             "getEntryForObject: documentId=%s, found=%s, time=%.4f seconds",
@@ -610,9 +644,8 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
     security.declareProtected(manage_zcatalog_indexes, "clear")
 
     def clear(self):
-        self._docvectors = IOBTree()
-        self._itq_hashes = IOBTree()
-        self._pivot_distances = IOBTree()
+        """Clear all index data."""
+        self._docid_to_path = OOBTree()
         self.length = Length()
         self.document_count = Length()
         self.indexed_with_model = None
@@ -622,6 +655,8 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
     def getITQHashes(self, docid):
         """Get the ITQ hashes for all chunks of a document.
 
+        Reads from content annotations.
+
         Args:
             docid: Document ID (RID)
 
@@ -629,11 +664,19 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
             tuple: List of (high_64bit, low_64bit) tuples, one per chunk
                    Returns None if not found
         """
-        if not hasattr(self, "_itq_hashes"):
-            return None
-        return self._itq_hashes.get(docid, None)
+        if hasattr(self, "_docid_to_path") and docid in self._docid_to_path:
+            path = self._docid_to_path[docid]
+            try:
+                portal = api.portal.get()
+                obj = portal.unrestrictedTraverse(path, None)
+                if obj:
+                    hashes = get_itq_hashes_from_annotations(obj)
+                    if hashes:
+                        return tuple(hashes)
+            except Exception as e:
+                logger.debug(f"Could not get ITQ hashes from annotations: {e}")
+        return None
 
-    # Legacy method for backward compatibility
     security.declareProtected(search_zcatalog, "getITQHash")
 
     def getITQHash(self, docid):
@@ -657,6 +700,8 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
     def getPivotDistancesAll(self, docid):
         """Get the pivot distances for all chunks of a document.
 
+        Reads from content annotations.
+
         Args:
             docid: Document ID (RID)
 
@@ -664,9 +709,18 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
             tuple: List of (d1, d2, ..., d8) tuples, one per chunk
                    Returns None if not found
         """
-        if not hasattr(self, "_pivot_distances"):
-            return None
-        return self._pivot_distances.get(docid, None)
+        if hasattr(self, "_docid_to_path") and docid in self._docid_to_path:
+            path = self._docid_to_path[docid]
+            try:
+                portal = api.portal.get()
+                obj = portal.unrestrictedTraverse(path, None)
+                if obj:
+                    distances = get_pivot_distances_from_annotations(obj)
+                    if distances:
+                        return tuple(distances)
+            except Exception as e:
+                logger.debug(f"Could not get pivot distances from annotations: {e}")
+        return None
 
     security.declareProtected(search_zcatalog, "getPivotDistancesForIndex")
 
@@ -691,7 +745,6 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
                 result.append(chunk_distances[pivot_index])
         return tuple(result) if result else None
 
-    # Legacy methods for backward compatibility
     security.declareProtected(search_zcatalog, "getPivotDistances")
 
     def getPivotDistances(self, docid):
@@ -760,29 +813,48 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
     def getITQPivotStats(self):
         """Get statistics about ITQ hash and pivot distance storage.
 
+        Reads stats from catalog indexes and metadata (no object traversal).
+
         Returns:
             dict: Statistics including counts and consistency info
         """
-        # Count documents and chunks for ITQ hashes
         itq_docs = 0
         itq_chunks = 0
-        if hasattr(self, "_itq_hashes"):
-            itq_docs = len(self._itq_hashes)
-            for hashes in self._itq_hashes.values():
-                if hashes:
-                    itq_chunks += len(hashes)
-
-        # Count documents and chunks for pivot distances
         pivot_docs = 0
         pivot_chunks = 0
-        if hasattr(self, "_pivot_distances"):
-            pivot_docs = len(self._pivot_distances)
-            for distances in self._pivot_distances.values():
-                if distances:
-                    pivot_chunks += len(distances)
+
+        try:
+            catalog = api.portal.get_tool("portal_catalog")
+
+            # Pivot stats from KeywordIndex (pivot1)
+            if "pivot1" in catalog.Indexes:
+                pivot_index = catalog.Indexes["pivot1"]
+                pivot_docs = pivot_index.numObjects()
+                if hasattr(pivot_index, "_unindex"):
+                    for values in pivot_index._unindex.values():
+                        if isinstance(values, (list, tuple, set)):
+                            pivot_chunks += len(values)
+                        else:
+                            pivot_chunks += 1
+
+            # ITQ stats from catalog metadata column
+            if hasattr(self, "_docid_to_path"):
+                for docid in self._docid_to_path:
+                    try:
+                        metadata = catalog.getMetadataForRID(docid)
+                        itq_value = metadata.get("itq_hashes")
+                        if itq_value:
+                            itq_docs += 1
+                            itq_chunks += len(itq_value)
+                    except Exception:
+                        continue
+        except Exception as e:
+            logger.debug(f"Could not get stats from catalog: {e}")
 
         stats = {
-            "documents": self.document_count() if hasattr(self, "document_count") else 0,
+            "documents": self.document_count()
+            if hasattr(self, "document_count")
+            else 0,
             "vectors": self.length() if hasattr(self, "length") else 0,
             "itq_hashes": itq_docs,
             "itq_hashes_chunks": itq_chunks,
@@ -792,11 +864,13 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
             "model_consistent": self.isModelConsistent(),
         }
 
-        # Check if ITQ/pivot data is available for current model
-        # Wrap in try/except to handle model loading failures gracefully
-        # (stats display should work even if the model can't be loaded)
+        # Check if ITQ/pivot data is available for current model.
+        # Use queryUtility() directly to avoid triggering _ensure_initialized()
+        # which would load the heavy SentenceTransformer model just for stats.
         try:
-            provider = self.model_provider
+            settings = self._get_settings()
+            model_id = settings.get("embedding_model", "all-minilm-l6")
+            provider = queryUtility(IEmbeddingModelProvider, name=model_id)
             if provider is not None:
                 if hasattr(provider, "get_itq_boundary"):
                     stats["itq_data_available"] = (
@@ -816,52 +890,10 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
                 stats["pivot_data_available"] = False
         except Exception as e:
             logger.debug(f"Could not check ITQ/pivot data availability: {e}")
-            # If model can't be loaded, check if data exists based on stored data
             stats["itq_data_available"] = itq_docs > 0
             stats["pivot_data_available"] = pivot_docs > 0
 
         return stats
-
-    security.declareProtected(manage_zcatalog_indexes, "clearAndRecomputeITQPivot")
-
-    def clearAndRecomputeITQPivot(self):
-        """Clear and recompute all ITQ hashes and pivot distances.
-
-        This is useful when:
-        - The embedding model has changed
-        - ITQ/pivot data files have been updated
-        - Data is inconsistent
-
-        Returns:
-            dict: Statistics about the recomputation
-        """
-        logger.info(f"clearAndRecomputeITQPivot called. _docvectors has {len(self._docvectors)} items")
-
-        # Clear existing data
-        self._clear_itq_pivot_data()
-
-        # Recompute for all documents
-        recomputed = 0
-        errors = 0
-
-        for docid, vectors in self._docvectors.items():
-            logger.info(f"Processing docid {docid}, vectors shape: {vectors.shape if vectors is not None else 'None'}")
-            if vectors is not None and len(vectors) > 0:
-                try:
-                    self._compute_and_store_itq_pivot_all(docid, vectors)
-                    recomputed += 1
-                except Exception as e:
-                    logger.warning(f"Failed to recompute ITQ/pivot for doc {docid}: {e}")
-                    errors += 1
-
-        logger.info(f"Recomputed ITQ/pivot for {recomputed} documents ({errors} errors)")
-        logger.info(f"After recompute: _itq_hashes has {len(self._itq_hashes)} items, _pivot_distances has {len(self._pivot_distances)} items")
-
-        return {
-            "recomputed": recomputed,
-            "errors": errors,
-            "total": len(self._docvectors),
-        }
 
     security.declareProtected(search_zcatalog, "getIndexSourceNames")
 

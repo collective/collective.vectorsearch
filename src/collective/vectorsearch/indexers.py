@@ -1,11 +1,12 @@
 """Indexers for ITQ hash and pivot distances.
 
-These indexers retrieve pre-computed values from VectorIndex to be stored
+These indexers retrieve pre-computed values from content annotations to be stored
 in PortalCatalog for approximate nearest neighbor search using ITQ-LSH
 and pivot filtering.
 
 Architecture:
-- VectorIndex computes ITQ hash and pivot distances during index_doc()
+- Event subscribers compute ITQ hash and pivot distances when content changes
+- Data is stored in content annotations
 - These indexers retrieve the pre-computed values for PortalCatalog storage
 - Each document may have multiple vectors (chunks), so each indexer returns
   a list of values
@@ -24,35 +25,43 @@ Pivot Distances:
 
 import logging
 
+import numpy as np
 from plone.indexer import indexer
 from Products.CMFCore.interfaces import IContentish
+
+from collective.vectorsearch.annotations import (
+    get_itq_hashes as get_itq_hashes_from_annotations,
+)
+from collective.vectorsearch.annotations import (
+    get_pivot_distances as get_pivot_distances_from_annotations,
+)
+from collective.vectorsearch.annotations import (
+    get_vectors as get_vectors_from_annotations,
+)
 
 logger = logging.getLogger("collective.vectorsearch")
 
 
-def _get_vector_index_and_rid(obj):
-    """Get VectorIndex and RID for an object.
+# Vector Indexer (metadata column)
+
+
+@indexer(IContentish)
+def llm_vector(obj):
+    """Indexer for raw embedding vectors of all chunks.
+
+    Reads pre-computed vectors from content annotations.
 
     Returns:
-        tuple: (vector_index, rid) or (None, None) if not available
+        list: List of vectors (each a list of floats), one per chunk
+              Returns None if no vectors available
     """
     try:
-        from plone import api
-
-        catalog = api.portal.get_tool("portal_catalog")
-        if "llm_vector" not in catalog.Indexes:
-            return None, None
-
-        vector_index = catalog.Indexes["llm_vector"]
-
-        # Get the document ID (RID) for this object
-        path = "/".join(obj.getPhysicalPath())
-        rid = catalog.getrid(path)
-
-        return vector_index, rid
+        vectors = get_vectors_from_annotations(obj)
+        if vectors:
+            return vectors
     except Exception as e:
-        logger.debug(f"Could not get vector index: {e}")
-        return None, None
+        logger.debug(f"Could not get llm_vector from annotations: {e}")
+    return None
 
 
 # ITQ Hash Indexer (metadata column)
@@ -62,24 +71,20 @@ def _get_vector_index_and_rid(obj):
 def itq_hashes(obj):
     """Indexer for ITQ hashes of all chunks.
 
+    Reads pre-computed ITQ hashes from content annotations.
+
     Returns:
-        list: List of (high_64bit, low_64bit) tuples, one per chunk
-              Returns None if no hashes available
+        tuple: Tuple of (high_64bit, low_64bit) tuples, one per chunk
+               Returns None if no hashes available
     """
-    vector_index, rid = _get_vector_index_and_rid(obj)
-    path = "/".join(obj.getPhysicalPath()) if hasattr(obj, "getPhysicalPath") else "unknown"
-    logger.info(f"itq_hashes indexer called for {path}, rid={rid}")
-
-    if vector_index is None or rid is None:
-        logger.info(f"itq_hashes: vector_index={vector_index is not None}, rid={rid} - returning None")
-        return None
-
-    hashes = vector_index.getITQHashes(rid)
-    logger.info(f"itq_hashes: got {len(hashes) if hashes else 0} hashes for rid={rid}")
-    if not hashes:
-        return None
-
-    return hashes
+    try:
+        hashes = get_itq_hashes_from_annotations(obj)
+        if hashes:
+            # Convert to tuple for catalog storage
+            return tuple(hashes)
+    except Exception as e:
+        logger.debug(f"Could not get itq_hashes from annotations: {e}")
+    return None
 
 
 # Pivot Distance Indexers (KeywordIndex - returns list of values)
@@ -88,26 +93,29 @@ def itq_hashes(obj):
 def _get_pivot_distances_for_index(obj, pivot_index):
     """Get all pivot distances for a specific pivot index.
 
+    Reads pre-computed pivot distances from content annotations.
+
     Args:
         obj: Content object
         pivot_index: 0-based pivot index (0-7)
 
     Returns:
-        list or tuple: List of integer distances for all chunks
-              Returns None if no distances available
+        tuple: Tuple of integer distances for all chunks
+               Returns None if no distances available
     """
-    vector_index, rid = _get_vector_index_and_rid(obj)
-    if vector_index is None or rid is None:
-        return None
-
-    distances = vector_index.getPivotDistancesForIndex(rid, pivot_index)
-    if pivot_index == 0:  # Only log for pivot1 to reduce noise
-        path = "/".join(obj.getPhysicalPath()) if hasattr(obj, "getPhysicalPath") else "unknown"
-        logger.info(f"pivot1 indexer: rid={rid}, distances={distances}")
-    if not distances:
-        return None
-
-    return distances
+    try:
+        all_distances = get_pivot_distances_from_annotations(obj)
+        if all_distances:
+            # Extract the specific pivot index from each chunk's distances
+            result = []
+            for chunk_distances in all_distances:
+                if chunk_distances and pivot_index < len(chunk_distances):
+                    result.append(chunk_distances[pivot_index])
+            if result:
+                return tuple(result)
+    except Exception as e:
+        logger.debug(f"Could not get pivot distances from annotations: {e}")
+    return None
 
 
 @indexer(IContentish)
@@ -200,8 +208,6 @@ def integers_to_binary_hash(high_int, low_int):
     Returns:
         numpy array of 128 uint8 values (0 or 1)
     """
-    import numpy as np
-
     if high_int is None or low_int is None:
         return None
 

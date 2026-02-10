@@ -2,6 +2,7 @@
 """Control panel for Vector Search settings."""
 
 import logging
+import traceback
 
 from plone import api
 from plone.app.registry.browser.controlpanel import (
@@ -14,8 +15,10 @@ from Products.statusmessages.interfaces import IStatusMessage
 from z3c.form import button
 
 from collective.vectorsearch import _
+from collective.vectorsearch.annotations import clear_vector_data
 from collective.vectorsearch.interfaces import IVectorIndex, IVectorSearchSettings
 from collective.vectorsearch.model_providers import get_backend_info
+from collective.vectorsearch.subscribers import compute_and_store_vectors
 
 logger = logging.getLogger("collective.vectorsearch")
 
@@ -31,6 +34,10 @@ class VectorSearchControlPanelForm(RegistryEditForm):
         "Changing the embedding model will clear all existing vectors."
     )
 
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
     def _get_current_model(self):
         """Get current embedding model from registry."""
         try:
@@ -40,8 +47,19 @@ class VectorSearchControlPanelForm(RegistryEditForm):
         except Exception:
             return "all-minilm-l6"
 
+    def _get_all_brains(self):
+        """Get all content brains from the catalog.
+
+        Always uses path=portal_path to scope results to the current
+        Plone site.  ZCatalog.searchResults() with no arguments returns
+        an empty result set — this helper prevents that pitfall.
+        """
+        catalog = api.portal.get_tool("portal_catalog")
+        portal_path = "/".join(api.portal.get().getPhysicalPath())
+        return catalog.unrestrictedSearchResults(path=portal_path)
+
     def _get_vector_indexes(self):
-        """Get all vector indexes from the catalog."""
+        """Get all VectorIndex instances from the catalog."""
         try:
             catalog = api.portal.get_tool("portal_catalog")
             indexes = []
@@ -50,26 +68,24 @@ class VectorSearchControlPanelForm(RegistryEditForm):
                 if index is None:
                     continue
 
-                # Check by interface first, fall back to meta_type
                 is_vector_index = IVectorIndex.providedBy(index)
                 meta_type = getattr(index, "meta_type", None)
 
-                # Fall back to meta_type check for existing indexes
-                # (interface may not be properly applied to pickled objects)
+                # Fall back to meta_type for pickled objects without interface
                 if not is_vector_index and meta_type == "VectorIndex":
                     is_vector_index = True
                     logger.debug(
-                        f"VectorIndex '{index_id}' detected by meta_type "
-                        "(interface not applied)"
+                        "VectorIndex '%s' detected by meta_type "
+                        "(interface not applied)",
+                        index_id,
                     )
 
                 if is_vector_index:
                     indexes.append((index_id, index))
 
-            logger.debug(f"_get_vector_indexes found {len(indexes)} vector indexes")
             return indexes
         except Exception as e:
-            logger.warning(f"Could not get vector indexes: {e}")
+            logger.warning("Could not get vector indexes: %s", e)
             return []
 
     def _get_incompatible_indexes(self):
@@ -89,44 +105,132 @@ class VectorSearchControlPanelForm(RegistryEditForm):
                     if indexed_model and indexed_model != current_model:
                         incompatible.append((index_id, indexed_model, current_model))
             except Exception as e:
-                logger.warning(f"Could not check index {index_id}: {e}")
+                logger.warning("Could not check index %s: %s", index_id, e)
 
         return incompatible
 
+    # ------------------------------------------------------------------
+    # Clear / Reindex operations
+    # ------------------------------------------------------------------
+
     def _clear_all_vector_indexes(self):
-        """Clear all vector indexes."""
-        indexes = self._get_vector_indexes()
+        """Clear all vector indexes and related catalog data.
+
+        Clears in order:
+        1. VectorIndex internal data (paths, counts, model info)
+        2. pivot1-8 KeywordIndex data
+        3. Content annotations (vectors, ITQ hashes, pivot distances)
+
+        After clearing, catalog metadata columns (itq_hashes, llm_vector)
+        will return None for all objects on next access.
+        """
+        catalog = api.portal.get_tool("portal_catalog")
         cleared_count = 0
-        for index_id, index in indexes:
+
+        # 1. Clear VectorIndex instances
+        for index_id, index in self._get_vector_indexes():
             try:
                 index.clear()
-                logger.info(f"Cleared vector index: {index_id}")
                 cleared_count += 1
             except Exception as e:
-                logger.error(f"Failed to clear index {index_id}: {e}")
+                logger.error("Failed to clear index %s: %s", index_id, e)
+
+        # 2. Clear pivot1-8 KeywordIndexes
+        for i in range(1, 9):
+            pivot_name = f"pivot{i}"
+            if pivot_name in catalog.Indexes:
+                try:
+                    catalog.Indexes[pivot_name].clear()
+                except Exception as e:
+                    logger.error("Failed to clear %s: %s", pivot_name, e)
+
+        # 3. Clear content annotations
+        annotation_count = 0
+        for brain in self._get_all_brains():
+            try:
+                obj = brain.getObject()
+                clear_vector_data(obj)
+                annotation_count += 1
+            except Exception:
+                continue
+
+        logger.info(
+            "Cleared %d vector index(es), annotations from %d objects",
+            cleared_count,
+            annotation_count,
+        )
         return cleared_count
 
     def _reindex_all_vector_indexes(self):
-        """Trigger reindexing for all vector indexes."""
+        """Reindex all vector-related indexes and metadata.
+
+        Two-phase approach per object:
+          1. compute_and_store_vectors()  — populate annotations
+          2. catalog.catalog_object()     — update indexes + metadata
+
+        Uses catalog_object() directly (not obj.reindexObject()) because:
+        - Bypasses collective.indexing queue for immediate execution
+        - Annotations must exist before catalog_object() since ZCatalog
+          updates metadata BEFORE processing indexes
+
+        Returns:
+            tuple: (reindexed_count, computed_count, error_count)
+        """
+        catalog = api.portal.get_tool("portal_catalog")
         indexes = self._get_vector_indexes()
-        index_ids = [idx_id for idx_id, _ in indexes]
+        vector_index_ids = [idx_id for idx_id, _ in indexes]
 
-        if index_ids:
+        if not vector_index_ids:
+            return 0, 0, 0
+
+        pivot_ids = [f"pivot{i}" for i in range(1, 9) if f"pivot{i}" in catalog.Indexes]
+        all_idxs = vector_index_ids + pivot_ids
+
+        brains = list(self._get_all_brains())
+        logger.info(
+            "Starting vector reindex: %d objects, indexes: %s",
+            len(brains),
+            all_idxs,
+        )
+
+        reindexed = 0
+        computed = 0
+        errors = 0
+        for brain in brains:
             try:
-                catalog = api.portal.get_tool("portal_catalog")
-                catalog.reindexIndex(index_ids, REQUEST=self.request)
-                logger.info(f"Triggered reindex for vector indexes: {index_ids}")
-            except Exception as e:
-                logger.error(f"Failed to reindex: {e}")
-                raise
+                obj = brain.getObject()
+                uid = brain.getPath()
 
-        return len(index_ids)
+                # Phase 1: Populate annotations
+                chunks = compute_and_store_vectors(obj)
+                if chunks > 0:
+                    computed += 1
+
+                # Phase 2: Update catalog indexes + metadata
+                catalog.catalog_object(obj, uid, idxs=all_idxs, update_metadata=1)
+
+                reindexed += 1
+            except Exception as e:
+                logger.warning("Failed to reindex %s: %s", brain.getPath(), e)
+                errors += 1
+
+        logger.info(
+            "Vector reindex complete: %d/%d objects, %d with vectors, %d errors",
+            reindexed,
+            len(brains),
+            computed,
+            errors,
+        )
+        return reindexed, computed, errors
+
+    # ------------------------------------------------------------------
+    # Template properties
+    # ------------------------------------------------------------------
 
     @property
     def vector_index_stats(self):
         """Get statistics for all vector indexes."""
         indexes = self._get_vector_indexes()
-        logger.debug(f"vector_index_stats: found {len(indexes)} indexes")
         current_model = self._get_current_model()
         stats = []
         for index_id, index in indexes:
@@ -134,12 +238,7 @@ class VectorSearchControlPanelForm(RegistryEditForm):
                 indexed_model = index.getIndexedModel()
                 doc_count = index.numObjects()
                 vector_count = index.indexSize()
-                logger.debug(
-                    f"Index '{index_id}': doc_count={doc_count}, "
-                    f"vector_count={vector_count}, model={indexed_model}"
-                )
 
-                # Get ITQ/pivot stats if available
                 itq_pivot_stats = {}
                 if hasattr(index, "getITQPivotStats"):
                     itq_pivot_stats = index.getITQPivotStats()
@@ -157,17 +256,26 @@ class VectorSearchControlPanelForm(RegistryEditForm):
                         ),
                         "itq_hash_count": itq_pivot_stats.get("itq_hashes", 0),
                         "itq_hash_chunks": itq_pivot_stats.get("itq_hashes_chunks", 0),
-                        "pivot_distance_count": itq_pivot_stats.get("pivot_distances", 0),
-                        "pivot_distance_chunks": itq_pivot_stats.get("pivot_distances_chunks", 0),
-                        "itq_data_available": itq_pivot_stats.get("itq_data_available", False),
-                        "pivot_data_available": itq_pivot_stats.get("pivot_data_available", False),
+                        "pivot_distance_count": itq_pivot_stats.get(
+                            "pivot_distances", 0
+                        ),
+                        "pivot_distance_chunks": itq_pivot_stats.get(
+                            "pivot_distances_chunks", 0
+                        ),
+                        "itq_data_available": itq_pivot_stats.get(
+                            "itq_data_available", False
+                        ),
+                        "pivot_data_available": itq_pivot_stats.get(
+                            "pivot_data_available", False
+                        ),
                     }
                 )
             except Exception as e:
-                import traceback
-
                 logger.warning(
-                    f"Could not get stats for {index_id}: {e}\n{traceback.format_exc()}"
+                    "Could not get stats for %s: %s\n%s",
+                    index_id,
+                    e,
+                    traceback.format_exc(),
                 )
                 stats.append(
                     {
@@ -185,7 +293,6 @@ class VectorSearchControlPanelForm(RegistryEditForm):
                         "error": str(e),
                     }
                 )
-        logger.debug(f"vector_index_stats returning {len(stats)} stats entries")
         return stats
 
     @property
@@ -199,21 +306,6 @@ class VectorSearchControlPanelForm(RegistryEditForm):
         return self._get_incompatible_indexes()
 
     @property
-    def total_indexes(self):
-        """Total number of vector indexes."""
-        return len(self.vector_index_stats)
-
-    @property
-    def total_documents(self):
-        """Total documents across all vector indexes."""
-        return sum(s["document_count"] for s in self.vector_index_stats)
-
-    @property
-    def total_vectors(self):
-        """Total vectors across all vector indexes."""
-        return sum(s["vector_count"] for s in self.vector_index_stats)
-
-    @property
     def backend_info(self):
         """Get backend information from registered providers."""
         return get_backend_info()
@@ -223,6 +315,10 @@ class VectorSearchControlPanelForm(RegistryEditForm):
         """Check if at least one backend is available."""
         backends = get_backend_info()
         return any(b["available"] for b in backends)
+
+    # ------------------------------------------------------------------
+    # Button handlers
+    # ------------------------------------------------------------------
 
     @button.buttonAndHandler(_("Save"), name="save")
     def handleSave(self, action):
@@ -235,7 +331,6 @@ class VectorSearchControlPanelForm(RegistryEditForm):
         self.applyChanges(data)
         IStatusMessage(self.request).addStatusMessage(_("Changes saved."), "info")
 
-        # Check for incompatible indexes after save
         incompatible = self._get_incompatible_indexes()
         if incompatible:
             index_info = ", ".join(
@@ -255,7 +350,6 @@ class VectorSearchControlPanelForm(RegistryEditForm):
     @button.buttonAndHandler(_("Reindex All"), name="reindex")
     def handleReindex(self, action):
         """Handle reindex all vector indexes."""
-        # Check for incompatible indexes first
         incompatible = self._get_incompatible_indexes()
         if incompatible:
             IStatusMessage(self.request).addStatusMessage(
@@ -269,20 +363,44 @@ class VectorSearchControlPanelForm(RegistryEditForm):
             return
 
         try:
-            count = self._reindex_all_vector_indexes()
-            if count > 0:
+            reindexed, computed, errors = self._reindex_all_vector_indexes()
+            if reindexed > 0:
                 IStatusMessage(self.request).addStatusMessage(
                     _(
-                        "Reindexing triggered for ${count} vector index(es). "
-                        "This may take some time depending on the amount of content.",
-                        mapping={"count": count},
+                        "Reindexed ${reindexed} objects: "
+                        "${computed} with vectors computed, ${errors} errors.",
+                        mapping={
+                            "reindexed": reindexed,
+                            "computed": computed,
+                            "errors": errors,
+                        },
                     ),
                     "info",
                 )
-            else:
+            elif errors > 0:
                 IStatusMessage(self.request).addStatusMessage(
-                    _("No vector indexes found to reindex."), "warning"
+                    _(
+                        "Reindex failed: ${errors} errors occurred. "
+                        "Check server logs for details.",
+                        mapping={"errors": errors},
+                    ),
+                    "error",
                 )
+            else:
+                if not self._get_vector_indexes():
+                    IStatusMessage(self.request).addStatusMessage(
+                        _("No vector indexes found in catalog."), "warning"
+                    )
+                else:
+                    total = len(list(self._get_all_brains()))
+                    IStatusMessage(self.request).addStatusMessage(
+                        _(
+                            "No content objects to reindex "
+                            "(${total} objects in catalog).",
+                            mapping={"total": total},
+                        ),
+                        "warning",
+                    )
         except Exception as e:
             IStatusMessage(self.request).addStatusMessage(
                 _("Error during reindex: ${error}", mapping={"error": str(e)}), "error"
@@ -305,45 +423,6 @@ class VectorSearchControlPanelForm(RegistryEditForm):
             IStatusMessage(self.request).addStatusMessage(
                 _("No vector indexes found to clear."), "warning"
             )
-        self.request.response.redirect(self.request.getURL())
-
-    @button.buttonAndHandler(_("Recompute ITQ/Pivot"), name="recompute_itq")
-    def handleRecomputeITQ(self, action):
-        """Handle recompute ITQ hashes and pivot distances.
-
-        This recomputes ITQ/pivot data from existing vectors without
-        re-embedding the content. Useful when ITQ/pivot data files
-        have been updated or are out of sync.
-        """
-        indexes = self._get_vector_indexes()
-        total_recomputed = 0
-        total_errors = 0
-
-        for index_id, index in indexes:
-            try:
-                if hasattr(index, "clearAndRecomputeITQPivot"):
-                    result = index.clearAndRecomputeITQPivot()
-                    total_recomputed += result.get("recomputed", 0)
-                    total_errors += result.get("errors", 0)
-                    logger.info(f"Recomputed ITQ/pivot for index {index_id}: {result}")
-            except Exception as e:
-                logger.error(f"Failed to recompute ITQ/pivot for {index_id}: {e}")
-                total_errors += 1
-
-        if total_recomputed > 0:
-            IStatusMessage(self.request).addStatusMessage(
-                _(
-                    "Recomputed ITQ/pivot data for ${count} documents. "
-                    "Errors: ${errors}",
-                    mapping={"count": total_recomputed, "errors": total_errors},
-                ),
-                "info",
-            )
-        else:
-            IStatusMessage(self.request).addStatusMessage(
-                _("No documents found to recompute ITQ/pivot data."), "warning"
-            )
-
         self.request.response.redirect(self.request.getURL())
 
     @button.buttonAndHandler(_("Cancel"), name="cancel")

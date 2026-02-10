@@ -166,11 +166,11 @@
 
           <p class="discreet">
             <strong i18n:translate="">Total:</strong>
-            <span tal:content="view/form_instance/total_indexes">0</span>
+            <span tal:content="python:len(stats)">0</span>
             <span i18n:translate="">index(es),</span>
-            <span tal:content="view/form_instance/total_documents">0</span>
+            <span tal:content="python:sum(s['document_count'] for s in stats)">0</span>
             <span i18n:translate="">documents,</span>
-            <span tal:content="view/form_instance/total_vectors">0</span>
+            <span tal:content="python:sum(s['vector_count'] for s in stats)">0</span>
             <span i18n:translate="">vectors</span>
           </p>
         </tal:has-stats>
@@ -192,7 +192,7 @@
         </tal:form>
       </div>
 
-      <!-- JavaScript for confirmation dialog on Clear button and Recompute ITQ button -->
+      <!-- JavaScript for confirmation dialog on Clear button -->
       <script type="text/javascript">
         (function() {
           'use strict';
@@ -206,23 +206,6 @@
                   'WARNING: This will clear ALL vector data from ALL indexes.\n\n' +
                   'You will need to reindex all content after this operation.\n\n' +
                   'Are you sure you want to continue?';
-
-                if (!confirm(message)) {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  return false;
-                }
-              });
-            }
-
-            // Confirmation for Recompute ITQ/Pivot button
-            var recomputeButton = document.querySelector('[name="form.buttons.recompute_itq"]');
-            if (recomputeButton) {
-              recomputeButton.addEventListener('click', function(e) {
-                var message =
-                  'This will recompute ITQ hashes and pivot distances from existing vectors.\n\n' +
-                  'This operation may take some time depending on the number of indexed documents.\n\n' +
-                  'Continue?';
 
                 if (!confirm(message)) {
                   e.preventDefault();

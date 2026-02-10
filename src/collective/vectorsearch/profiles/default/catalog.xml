@@ -34,4 +34,8 @@
   <!-- ITQ hash metadata for stage 2 filtering (Hamming distance) -->
   <!-- List of (high_64bit, low_64bit) tuples for each chunk -->
   <column value="itq_hashes"/>
+
+  <!-- Raw embedding vectors metadata for stage 3 similarity computation -->
+  <!-- List of vectors (each is a list of floats) -->
+  <column value="llm_vector"/>
 </object>

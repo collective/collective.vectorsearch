@@ -14,6 +14,7 @@ from collective.vectorsearch.data_loader import (
     validate_pivot_data,
 )
 from collective.vectorsearch.interfaces import IEmbeddingModelProvider
+from collective.vectorsearch.vector_index import ModelCache
 
 logger = logging.getLogger("collective.vectorsearch")
 
@@ -21,6 +22,7 @@ logger = logging.getLogger("collective.vectorsearch")
 # Check for optional dependencies
 try:
     from fastembed import TextEmbedding  # noqa: F401
+    from fastembed.common.model_description import ModelSource, PoolingType
 
     HAS_FASTEMBED = True
 except ImportError:
@@ -42,6 +44,45 @@ def check_fastembed_available():
 def check_sentence_transformers_available():
     """Check if sentence_transformers (GPU support) is available."""
     return HAS_SENTENCE_TRANSFORMERS
+
+
+_CUSTOM_MODELS_REGISTERED = set()
+
+
+def _register_fastembed_custom_model(
+    model_name,
+    dim,
+    pooling,
+    normalization,
+    hf_source=None,
+    model_file="onnx/model.onnx",
+    additional_files=None,
+):
+    """Register a custom model with FastEmbed if not already registered.
+
+    Idempotent - safe to call multiple times.
+    """
+    if model_name in _CUSTOM_MODELS_REGISTERED:
+        return
+
+    if not HAS_FASTEMBED:
+        return
+
+    try:
+        TextEmbedding.add_custom_model(
+            model=model_name,
+            pooling=pooling,
+            normalization=normalization,
+            sources=ModelSource(hf=hf_source or model_name),
+            dim=dim,
+            model_file=model_file,
+            additional_files=additional_files or [],
+        )
+    except ValueError:
+        # Already registered (add_custom_model raises ValueError for duplicates)
+        pass
+
+    _CUSTOM_MODELS_REGISTERED.add(model_name)
 
 
 @implementer(IEmbeddingModelProvider)
@@ -130,9 +171,6 @@ class BaseEmbeddingModelProvider:
 
         # Handle different initialization patterns
         if self.embedding_class == "SentenceTransformerEmbedding":
-            # Lazy import ModelCache to avoid requiring sentence_transformers
-            from collective.vectorsearch.vector_index import ModelCache
-
             cache = ModelCache()
             model = cache.get_model(self.model_name)
             return EmbeddingClass(
@@ -241,6 +279,8 @@ class E5BaseMultilingualProvider(BaseEmbeddingModelProvider):
     """Provider for E5 Base Multilingual with FastEmbed.
 
     Multilingual model (100+ languages) with ONNX optimization for CPU.
+    Uses add_custom_model() to register with FastEmbed since this model
+    is not in FastEmbed's built-in supported list.
     """
 
     id = "e5-base-multilingual"
@@ -262,6 +302,29 @@ class E5BaseMultilingualProvider(BaseEmbeddingModelProvider):
     backend_name = "FastEmbed (CPU/ONNX)"
     requires_gpu = False
     extras_name = None  # Default installation
+
+    def get_embedding_instance(
+        self, chunk_size=500, prefix_query=None, prefix_passage=None
+    ):
+        """Create FastEmbed embedding after registering custom model.
+
+        intfloat/multilingual-e5-base is not in FastEmbed's built-in model list,
+        but ONNX files exist on HuggingFace Hub. We register it as a custom model
+        before creating the embedding instance.
+        """
+        _register_fastembed_custom_model(
+            model_name=self.model_name,
+            dim=self.vector_dimensions,
+            pooling=PoolingType.MEAN,
+            normalization=True,
+            model_file="onnx/model.onnx",
+            additional_files=["sentencepiece.bpe.model"],
+        )
+        return super().get_embedding_instance(
+            chunk_size=chunk_size,
+            prefix_query=prefix_query,
+            prefix_passage=prefix_passage,
+        )
 
 
 class E5BaseMultilingualGPUProvider(BaseEmbeddingModelProvider):

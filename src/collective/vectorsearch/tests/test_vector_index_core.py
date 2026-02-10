@@ -129,7 +129,7 @@ class TestVectorIndexCore(unittest.TestCase):
         index = VectorIndex("test_index")
 
         # Add some dummy data
-        index._docvectors[1] = np.array([[1.0, 2.0, 3.0]])
+        index._docid_to_path[1] = "/plone/doc1"
         index.length.change(1)
         index.document_count.change(1)
 
@@ -139,7 +139,7 @@ class TestVectorIndexCore(unittest.TestCase):
         # Verify it's reset
         self.assertEqual(index.numObjects(), 0)
         self.assertEqual(index.indexSize(), 0)
-        self.assertEqual(len(index._docvectors), 0)
+        self.assertEqual(len(index._docid_to_path), 0)
 
     def test_get_settings_with_registry_error(self):
         """Test _get_settings falls back to defaults on registry error."""
@@ -163,24 +163,6 @@ class TestVectorIndexCore(unittest.TestCase):
 
 class TestVectorIndexITQPivot(unittest.TestCase):
     """Test ITQ hash and pivot distance functionality."""
-
-    def test_itq_hashes_btree_initialized(self):
-        """Test that _itq_hashes BTree is initialized."""
-        from collective.vectorsearch.vector_index import VectorIndex
-
-        index = VectorIndex("test_index")
-
-        self.assertTrue(hasattr(index, "_itq_hashes"))
-        self.assertEqual(len(index._itq_hashes), 0)
-
-    def test_pivot_distances_btree_initialized(self):
-        """Test that _pivot_distances BTree is initialized."""
-        from collective.vectorsearch.vector_index import VectorIndex
-
-        index = VectorIndex("test_index")
-
-        self.assertTrue(hasattr(index, "_pivot_distances"))
-        self.assertEqual(len(index._pivot_distances), 0)
 
     def test_get_itq_hash_returns_none_for_missing(self):
         """Test getITQHash returns None for non-existent document."""
@@ -209,140 +191,22 @@ class TestVectorIndexITQPivot(unittest.TestCase):
         result = index.getPivotDistance(999, 0)
         self.assertIsNone(result)
 
-    def test_get_pivot_distance_returns_none_for_invalid_index(self):
-        """Test getPivotDistance returns None for invalid pivot index."""
+    def test_clear_also_clears_path_mapping(self):
+        """Test clear method clears _docid_to_path mapping."""
         from collective.vectorsearch.vector_index import VectorIndex
 
         index = VectorIndex("test_index")
 
-        # Manually add pivot distances (new format: list of tuples, one per chunk)
-        index._pivot_distances[1] = ((100, 200, 300, 400, 500, 600, 700, 800),)
-
-        # Invalid index should return None
-        result = index.getPivotDistance(1, 10)
-        self.assertIsNone(result)
-
-        result = index.getPivotDistance(1, -1)
-        self.assertIsNone(result)
-
-    def test_get_pivot_distance_returns_correct_value(self):
-        """Test getPivotDistance returns correct value."""
-        from collective.vectorsearch.vector_index import VectorIndex
-
-        index = VectorIndex("test_index")
-
-        # Manually add pivot distances (new format: list of tuples, one per chunk)
-        index._pivot_distances[1] = ((100, 200, 300, 400, 500, 600, 700, 800),)
-
-        # Check each pivot (returns first chunk's value)
-        for i in range(8):
-            result = index.getPivotDistance(1, i)
-            self.assertEqual(result, (i + 1) * 100)
-
-    def test_get_pivot_distances_for_index(self):
-        """Test getPivotDistancesForIndex returns all chunk distances for a pivot."""
-        from collective.vectorsearch.vector_index import VectorIndex
-
-        index = VectorIndex("test_index")
-
-        # Add pivot distances for document with 3 chunks
-        index._pivot_distances[1] = (
-            (100, 200, 300, 400, 500, 600, 700, 800),  # chunk 0
-            (110, 210, 310, 410, 510, 610, 710, 810),  # chunk 1
-            (120, 220, 320, 420, 520, 620, 720, 820),  # chunk 2
-        )
-
-        # Check pivot 0 (first pivot) returns all chunk distances
-        result = index.getPivotDistancesForIndex(1, 0)
-        self.assertEqual(result, (100, 110, 120))
-
-        # Check pivot 3 (fourth pivot)
-        result = index.getPivotDistancesForIndex(1, 3)
-        self.assertEqual(result, (400, 410, 420))
-
-    def test_get_itq_hashes_multiple_chunks(self):
-        """Test getITQHashes returns all chunk hashes."""
-        from collective.vectorsearch.vector_index import VectorIndex
-
-        index = VectorIndex("test_index")
-
-        # Add ITQ hashes for document with 2 chunks
-        index._itq_hashes[1] = ((123, 456), (789, 101112))
-
-        result = index.getITQHashes(1)
-        self.assertEqual(result, ((123, 456), (789, 101112)))
-
-        # Legacy getITQHash returns first chunk only
-        result = index.getITQHash(1)
-        self.assertEqual(result, (123, 456))
-
-    def test_clear_also_clears_itq_pivot_data(self):
-        """Test clear method also clears ITQ hashes and pivot distances."""
-        from collective.vectorsearch.vector_index import VectorIndex
-
-        index = VectorIndex("test_index")
-
-        # Add some dummy data (new format: tuple of tuples)
-        index._docvectors[1] = np.array([[1.0, 2.0, 3.0]])
-        index._itq_hashes[1] = ((123, 456),)
-        index._pivot_distances[1] = ((100, 200, 300, 400, 500, 600, 700, 800),)
+        # Add some dummy data
+        index._docid_to_path[1] = "/plone/doc1"
         index.length.change(1)
         index.document_count.change(1)
 
         # Clear the index
         index.clear()
 
-        # Verify all data is cleared
-        self.assertEqual(len(index._docvectors), 0)
-        self.assertEqual(len(index._itq_hashes), 0)
-        self.assertEqual(len(index._pivot_distances), 0)
-
-    def test_binary_hash_to_integers_conversion(self):
-        """Test _binary_hash_to_integers method."""
-        from collective.vectorsearch.vector_index import VectorIndex
-
-        index = VectorIndex("test_index")
-
-        # Create a known binary hash
-        binary_hash = np.zeros(128, dtype=np.uint8)
-        binary_hash[0] = 1  # First bit of high
-        binary_hash[64] = 1  # First bit of low
-
-        high, low = index._binary_hash_to_integers(binary_hash)
-
-        # First bit set means value should be 2^63
-        self.assertEqual(high, 1 << 63)
-        self.assertEqual(low, 1 << 63)
-
-    def test_binary_hash_to_integers_all_ones(self):
-        """Test _binary_hash_to_integers with all ones."""
-        from collective.vectorsearch.vector_index import VectorIndex
-
-        index = VectorIndex("test_index")
-
-        # All ones
-        binary_hash = np.ones(128, dtype=np.uint8)
-
-        high, low = index._binary_hash_to_integers(binary_hash)
-
-        # All bits set
-        expected = (1 << 64) - 1  # 2^64 - 1
-        self.assertEqual(high, expected)
-        self.assertEqual(low, expected)
-
-    def test_binary_hash_to_integers_invalid_length(self):
-        """Test _binary_hash_to_integers with invalid length."""
-        from collective.vectorsearch.vector_index import VectorIndex
-
-        index = VectorIndex("test_index")
-
-        # Wrong length
-        binary_hash = np.zeros(64, dtype=np.uint8)
-
-        high, low = index._binary_hash_to_integers(binary_hash)
-
-        self.assertIsNone(high)
-        self.assertIsNone(low)
+        # Verify data is cleared
+        self.assertEqual(len(index._docid_to_path), 0)
 
     def test_is_model_consistent_empty_index(self):
         """Test isModelConsistent returns True for empty index."""
@@ -358,8 +222,8 @@ class TestVectorIndexITQPivot(unittest.TestCase):
             # Empty index should be consistent
             self.assertTrue(index.isModelConsistent())
 
-    def test_get_itq_pivot_stats(self):
-        """Test getITQPivotStats returns correct statistics."""
+    def test_get_itq_pivot_stats_basic(self):
+        """Test getITQPivotStats returns basic statistics."""
         from collective.vectorsearch.vector_index import VectorIndex
 
         mock_provider = Mock()
@@ -374,20 +238,18 @@ class TestVectorIndexITQPivot(unittest.TestCase):
             return_value=mock_provider,
         ):
             index = VectorIndex("test_index")
-
-            # Add some data
-            index._docvectors[1] = np.array([[1.0, 2.0, 3.0]])
-            index._itq_hashes[1] = (123, 456)
-            index._pivot_distances[1] = (100, 200, 300, 400, 500, 600, 700, 800)
             index.length.change(1)
             index.document_count.change(1)
 
-            stats = index.getITQPivotStats()
+            # getITQPivotStats reads from catalog, which is not available
+            # in unit tests. Just verify it returns a dict without errors.
+            with patch(
+                "collective.vectorsearch.vector_index.api.portal.get_tool"
+            ):
+                stats = index.getITQPivotStats()
 
             self.assertEqual(stats["documents"], 1)
             self.assertEqual(stats["vectors"], 1)
-            self.assertEqual(stats["itq_hashes"], 1)
-            self.assertEqual(stats["pivot_distances"], 1)
             self.assertTrue(stats["itq_data_available"])
             self.assertTrue(stats["pivot_data_available"])
 

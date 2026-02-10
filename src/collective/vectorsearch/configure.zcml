@@ -64,6 +64,39 @@
     />
   </genericsetup:upgradeSteps>
 
+  <genericsetup:upgradeSteps
+      source="1002"
+      destination="1003"
+      profile="collective.vectorsearch:default">
+    <genericsetup:upgradeStep
+        title="Migrate vector data to content annotations"
+        handler=".upgrades.upgrade_to_1003"
+    />
+  </genericsetup:upgradeSteps>
+
+  <genericsetup:upgradeSteps
+      source="1003"
+      destination="1004"
+      profile="collective.vectorsearch:default">
+    <genericsetup:upgradeStep
+        title="Add llm_vector metadata column"
+        handler=".upgrades.upgrade_to_1004"
+    />
+  </genericsetup:upgradeSteps>
+
+  <!-- Event subscribers for computing embeddings on content changes -->
+  <subscriber
+      for="Products.CMFCore.interfaces.IContentish
+           zope.lifecycleevent.interfaces.IObjectAddedEvent"
+      handler=".subscribers.content_added"
+  />
+
+  <subscriber
+      for="Products.CMFCore.interfaces.IContentish
+           zope.lifecycleevent.interfaces.IObjectModifiedEvent"
+      handler=".subscribers.content_modified"
+  />
+
   <five:registerClass
       class=".vector_index.VectorIndex"
       meta_type="VectorIndex"
@@ -111,6 +144,12 @@
       component=".vocabularies.ApproximationAlgorithmsVocabularyFactory"
       provides="zope.schema.interfaces.IVocabularyFactory"
       name="collective.vectorsearch.approximation_algorithms"
+  />
+
+  <!-- Raw vector metadata indexer (embedding vectors for all chunks) -->
+  <adapter
+      factory=".indexers.llm_vector"
+      name="llm_vector"
   />
 
   <!-- ITQ Hash indexer (list of 128-bit hashes for all chunks) -->
