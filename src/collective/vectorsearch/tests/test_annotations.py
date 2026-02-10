@@ -17,8 +17,12 @@ class TestAnnotationKeys(unittest.TestCase):
         )
 
         self.assertEqual(ANNOTATION_KEY_VECTORS, "collective.vectorsearch.vectors")
-        self.assertEqual(ANNOTATION_KEY_ITQ_HASHES, "collective.vectorsearch.itq_hashes")
-        self.assertEqual(ANNOTATION_KEY_PIVOT_DISTANCES, "collective.vectorsearch.pivot_distances")
+        self.assertEqual(
+            ANNOTATION_KEY_ITQ_HASHES, "collective.vectorsearch.itq_hashes"
+        )
+        self.assertEqual(
+            ANNOTATION_KEY_PIVOT_DISTANCES, "collective.vectorsearch.pivot_distances"
+        )
         self.assertEqual(ANNOTATION_KEY_MODEL_ID, "collective.vectorsearch.model_id")
 
 
@@ -30,7 +34,9 @@ class TestAnnotationHelpers(unittest.TestCase):
         from collective.vectorsearch.annotations import get_vector_data
 
         obj = MagicMock()
-        with patch("collective.vectorsearch.annotations.IAnnotations") as mock_annotations:
+        with patch(
+            "collective.vectorsearch.annotations.IAnnotations"
+        ) as mock_annotations:
             mock_annotations.side_effect = TypeError("Not annotatable")
             result = get_vector_data(obj)
             self.assertIsNone(result)
@@ -186,7 +192,9 @@ class TestAnnotationHelpers(unittest.TestCase):
             )
 
             # Should be converted to list
-            self.assertEqual(mock_annotations[ANNOTATION_KEY_VECTORS], [[1.0, 2.0], [3.0, 4.0]])
+            self.assertEqual(
+                mock_annotations[ANNOTATION_KEY_VECTORS], [[1.0, 2.0], [3.0, 4.0]]
+            )
             self.assertIsInstance(mock_annotations[ANNOTATION_KEY_VECTORS], list)
 
     def test_clear_vector_data_removes_all_keys(self):

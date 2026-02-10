@@ -152,7 +152,9 @@ class TestPivotData(unittest.TestCase):
         )
 
         # With threshold 0.1, only docs 0 and 2 should pass
-        mask = pivot_data.filter_candidates(doc_distances, query_distances, threshold=0.1)
+        mask = pivot_data.filter_candidates(
+            doc_distances, query_distances, threshold=0.1
+        )
 
         self.assertEqual(mask.shape, (3,))
         self.assertTrue(mask[0])  # diff = 0.05 < 0.1

@@ -243,9 +243,7 @@ class TestVectorIndexITQPivot(unittest.TestCase):
 
             # getITQPivotStats reads from catalog, which is not available
             # in unit tests. Just verify it returns a dict without errors.
-            with patch(
-                "collective.vectorsearch.vector_index.api.portal.get_tool"
-            ):
+            with patch("collective.vectorsearch.vector_index.api.portal.get_tool"):
                 stats = index.getITQPivotStats()
 
             self.assertEqual(stats["documents"], 1)
