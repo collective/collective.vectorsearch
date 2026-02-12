@@ -116,9 +116,21 @@ class StorageBackendsVocabulary:
         return SimpleVocabulary(
             [
                 SimpleTerm(value="btrees", token="btrees", title="BTrees (Internal)"),
-                SimpleTerm(value="faiss", token="faiss", title="FAISS"),
-                SimpleTerm(value="duckdb", token="duckdb", title="DuckDB"),
-                SimpleTerm(value="annoy", token="annoy", title="Annoy"),
+                SimpleTerm(
+                    value="faiss",
+                    token="faiss",
+                    title="FAISS (not yet available)",
+                ),
+                SimpleTerm(
+                    value="duckdb",
+                    token="duckdb",
+                    title="DuckDB (not yet available)",
+                ),
+                SimpleTerm(
+                    value="annoy",
+                    token="annoy",
+                    title="Annoy (not yet available)",
+                ),
             ]
         )
 
@@ -138,7 +150,11 @@ class ApproximationAlgorithmsVocabulary:
                     token="exhaustive_cosine",
                     title="Exhaustive Cosine Search",
                 ),
-                SimpleTerm(value="hnsw", token="hnsw", title="HNSW"),
+                SimpleTerm(
+                    value="hnsw",
+                    token="hnsw",
+                    title="HNSW (not yet available)",
+                ),
                 SimpleTerm(
                     value="itq_lsh_2stage",
                     token="itq_lsh_2stage",

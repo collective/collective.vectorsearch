@@ -41,6 +41,11 @@ Features:
 
   [terapyon]
 
+- Mark unimplemented options as "(not yet available)" in control panel vocabularies
+  (storage backends: FAISS, DuckDB, Annoy; approximation algorithm: HNSW).
+  Add interface invariants to prevent saving unimplemented options.
+  [terapyon]
+
 
 1.0a1 (unreleased)
 ------------------

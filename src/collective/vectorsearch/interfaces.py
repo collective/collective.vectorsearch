@@ -49,7 +49,8 @@ class IVectorSearchSettings(Interface):
         title=_("Storage Backend"),
         description=_(
             "Storage system for vector data. "
-            "BTrees (internal), or external vector databases (FAISS, DuckDB, etc.)"
+            "Currently only BTrees (internal) is available. "
+            "External vector databases (FAISS, DuckDB, etc.) are planned for future releases."
         ),
         vocabulary="collective.vectorsearch.storage_backends",
         default="btrees",
@@ -59,9 +60,8 @@ class IVectorSearchSettings(Interface):
     external_db_uri = schema.URI(
         title=_("External Database URI"),
         description=_(
-            "URI for external vector database connection. "
-            "Required when storage backend is not 'btrees'. "
-            "Examples: 'http://localhost:8080/faiss', 'duckdb:///path/to/db.duckdb'"
+            "URI for external vector database connection (not yet available). "
+            "This setting will be used when external storage backends are implemented."
         ),
         required=False,
     )
@@ -71,7 +71,7 @@ class IVectorSearchSettings(Interface):
         description=_(
             "Search strategy for similarity calculation. "
             "Based on LSH cascade research (lsh-cascade-poc). "
-            "Currently only 'Exhaustive Cosine' is implemented."
+            "Available: Exhaustive Cosine, ITQ LSH 2-stage, ITQ LSH 3-stage."
         ),
         vocabulary="collective.vectorsearch.approximation_algorithms",
         default="exhaustive_cosine",
@@ -106,12 +106,42 @@ class IVectorSearchSettings(Interface):
     )
 
     @invariant
+    def validate_storage_backend(obj):
+        """Validate that only implemented storage backends can be selected."""
+        implemented_backends = ["btrees"]
+        if obj.storage_backend not in implemented_backends:
+            raise Invalid(
+                _(
+                    "Storage backend '${backend}' is not yet available. "
+                    "Currently only BTrees is supported.",
+                    mapping={"backend": obj.storage_backend},
+                )
+            )
+
+    @invariant
     def validate_external_db_uri(obj):
         """Validate that external_db_uri is provided when storage_backend is not btrees."""
         if obj.storage_backend != "btrees" and not obj.external_db_uri:
             raise Invalid(
                 _(
                     "External Database URI is required when storage backend is not BTrees."
+                )
+            )
+
+    @invariant
+    def validate_approximation_algorithm(obj):
+        """Validate that only implemented approximation algorithms can be selected."""
+        implemented_algorithms = [
+            "exhaustive_cosine",
+            "itq_lsh_2stage",
+            "itq_lsh_3stage",
+        ]
+        if obj.approximation_algorithm not in implemented_algorithms:
+            raise Invalid(
+                _(
+                    "Approximation algorithm '${algorithm}' is not yet available. "
+                    "Currently supported: Exhaustive Cosine, ITQ LSH 2-stage, ITQ LSH 3-stage.",
+                    mapping={"algorithm": obj.approximation_algorithm},
                 )
             )
 
