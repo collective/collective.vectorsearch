@@ -5,6 +5,8 @@ from logging import getLogger
 
 from BTrees.OOBTree import OOBTree
 from plone import api
+from plone.registry import Record
+from plone.registry import field as registry_field
 from zope.annotation.interfaces import IAnnotations
 
 from collective.vectorsearch.annotations import (
@@ -245,3 +247,39 @@ def upgrade_to_1004(context):
             logger.info("Removed _docvectors cache from VectorIndex")
 
     logger.info("collective.vectorsearch: Upgrade to version 1004 complete")
+
+
+def upgrade_to_1005(context):
+    """Migrate registry key: hamming_distance_threshold -> itq_candidates.
+
+    The Hamming distance search strategy changed from threshold-based filtering
+    (hamming_dist <= threshold) to top-K ranking (sort by Hamming distance,
+    take top N candidates). This matches the PoC (lsh-cascade-poc) behavior.
+
+    Old key: collective.vectorsearch.hamming_distance_threshold (default: 3)
+    New key: collective.vectorsearch.itq_candidates (default: 100)
+
+    IMPORTANT: Do NOT use runImportStepFromProfile("plone.app.registry") here,
+    as it re-imports the full registry/main.xml and resets ALL settings
+    (including embedding_model) to their XML defaults.
+    """
+    registry = api.portal.get_tool("portal_registry")
+    old_key = "collective.vectorsearch.hamming_distance_threshold"
+    new_key = "collective.vectorsearch.itq_candidates"
+
+    # Remove old registry key if it exists
+    if old_key in registry.records:
+        del registry.records[old_key]
+        logger.info(f"Removed old registry key: {old_key}")
+
+    # Add new key directly (without re-importing the full profile)
+    if new_key not in registry.records:
+        registry.records[new_key] = Record(
+            registry_field.Int(title="ITQ Candidates (Stage 2)", default=100),
+            value=100,
+        )
+        logger.info(f"Created registry key: {new_key} = 100")
+    else:
+        logger.info(f"Registry key {new_key} already exists, skipping")
+
+    logger.info("collective.vectorsearch: Upgrade to version 1005 complete")

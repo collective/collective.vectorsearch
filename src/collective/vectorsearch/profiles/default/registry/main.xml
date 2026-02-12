@@ -13,7 +13,7 @@
     <value key="external_db_uri"></value>
     <value key="approximation_algorithm">exhaustive_cosine</value>
     <value key="pivot_threshold">200</value>
-    <value key="hamming_distance_threshold">3</value>
+    <value key="itq_candidates">100</value>
   </records>
 
 </registry>

@@ -91,17 +91,18 @@ class IVectorSearchSettings(Interface):
         max=2000,
     )
 
-    hamming_distance_threshold = schema.Int(
-        title=_("Hamming Distance Threshold (Stage 2)"),
+    itq_candidates = schema.Int(
+        title=_("ITQ Candidates (Stage 2)"),
         description=_(
-            "Maximum Hamming distance for candidate filtering in Stage 2. "
-            "Lower values = stricter filtering, fewer candidates. "
-            "Recommended: 2-10. Default: 3."
+            "Number of candidates to keep after Hamming distance ranking in Stage 2. "
+            "Documents are sorted by Hamming distance and the top N are passed to "
+            "Stage 3 (cosine similarity). Higher values = better recall, slower speed. "
+            "Recommended: 50-200. Default: 100."
         ),
-        default=3,
+        default=100,
         required=False,
-        min=0,
-        max=128,
+        min=10,
+        max=10000,
     )
 
     @invariant

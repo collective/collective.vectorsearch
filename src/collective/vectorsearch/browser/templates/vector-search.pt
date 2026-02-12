@@ -36,7 +36,7 @@
     </h2>
     <form name="searchform"
           id="searchform"
-          action="@@llm-search"
+          action="@@vector-search"
           role="search"
           class="searchPage pat-formautofocus pat-search"
           tal:define="portal context/@@plone_portal_state/portal;
