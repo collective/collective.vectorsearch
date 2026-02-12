@@ -84,6 +84,16 @@
     />
   </genericsetup:upgradeSteps>
 
+  <genericsetup:upgradeSteps
+      source="1004"
+      destination="1005"
+      profile="collective.vectorsearch:default">
+    <genericsetup:upgradeStep
+        title="Migrate hamming_distance_threshold to itq_candidates"
+        handler=".upgrades.upgrade_to_1005"
+    />
+  </genericsetup:upgradeSteps>
+
   <!-- Event subscribers for computing embeddings on content changes -->
   <subscriber
       for="Products.CMFCore.interfaces.IContentish

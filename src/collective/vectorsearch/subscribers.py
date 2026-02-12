@@ -23,6 +23,7 @@ from collective.vectorsearch.annotations import (
     clear_vector_data,
     set_vector_data,
 )
+from collective.vectorsearch.indexers import binary_hash_to_integers
 from collective.vectorsearch.interfaces import IEmbeddingModelProvider
 
 logger = logging.getLogger("collective.vectorsearch")
@@ -92,35 +93,6 @@ def _get_searchable_text(obj):
     return None
 
 
-def _binary_hash_to_integers(binary_hash):
-    """Convert 128-bit binary hash to two 64-bit integers.
-
-    Args:
-        binary_hash: numpy array of 128 uint8 values (0 or 1)
-
-    Returns:
-        tuple: (high_64bits, low_64bits) as Python integers
-    """
-    if binary_hash is None or len(binary_hash) != 128:
-        return None, None
-
-    high_bits = binary_hash[:64]
-    low_bits = binary_hash[64:]
-
-    high_int = 0
-    low_int = 0
-
-    for i, bit in enumerate(high_bits):
-        if bit:
-            high_int |= 1 << (63 - i)
-
-    for i, bit in enumerate(low_bits):
-        if bit:
-            low_int |= 1 << (63 - i)
-
-    return high_int, low_int
-
-
 def compute_and_store_vectors(obj):
     """Compute embeddings, ITQ hashes, pivot distances and store in annotations.
 
@@ -184,7 +156,7 @@ def compute_and_store_vectors(obj):
             if itq_data is not None:
                 for vector in vectors:
                     binary_hash = itq_data.compute_hash(vector)
-                    high, low = _binary_hash_to_integers(binary_hash)
+                    high, low = binary_hash_to_integers(binary_hash)
                     itq_hashes_list.append((high, low))
         except Exception as e:
             logger.warning(f"Failed to compute ITQ hashes for {obj}: {e}")

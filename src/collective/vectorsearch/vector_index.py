@@ -6,12 +6,13 @@ from AccessControl.Permissions import search_zcatalog
 from AccessControl.SecurityInfo import ClassSecurityInfo
 from Acquisition import Implicit
 from App.special_dtml import DTMLFile
-from BTrees.IIBTree import IIBucket
+from BTrees.IIBTree import IIBucket, IISet, intersection
 from BTrees.Length import Length
 from BTrees.OOBTree import OOBTree
 from OFS.SimpleItem import SimpleItem
 from Persistence import Persistent
 from Products.PluginIndexes.interfaces import IQueryIndex
+from Products.ZCatalog.query import IndexQuery
 from Products.ZCatalog.ZCatalog import manage_zcatalog_indexes
 from zope.interface import implementer
 
@@ -38,6 +39,10 @@ from collective.vectorsearch.annotations import (
 )
 from collective.vectorsearch.annotations import (
     get_vectors as get_vectors_from_annotations,
+)
+from collective.vectorsearch.indexers import (
+    batch_min_hamming_distance,
+    binary_hash_to_integers,
 )
 from collective.vectorsearch.interfaces import IEmbeddingModelProvider, IVectorIndex
 from collective.vectorsearch.similarity_algorithm import CosineSimilarityAlgorithm
@@ -190,14 +195,32 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
 
         Note: Volatile attributes (_v_*) are not persisted to ZODB, so we
         must use getattr() with defaults when checking them.
-        """
-        if getattr(self, "_v_embedding", None) is not None:
-            return
 
+        Detects model/chunk_size changes: if the user changes the embedding
+        model in the control panel, the cached embedding is invalidated and
+        re-created without requiring a process restart.
+        """
         settings = self._get_settings()
         model_id = settings.get("embedding_model", "all-minilm-l6")
         chunk_size = settings.get("embedding_chunk_size", 500)
         approx_algo = settings.get("approximation_algorithm", "exhaustive_cosine")
+
+        if getattr(self, "_v_embedding", None) is not None:
+            # Check if model or chunk_size changed since last init
+            cached_model = getattr(self, "_v_model_id", None)
+            cached_chunk = getattr(self, "_v_chunk_size", None)
+            if cached_model is None or (
+                cached_model == model_id and cached_chunk == chunk_size
+            ):
+                # Same model (or externally set), just ensure ITQ/pivot data
+                self._ensure_itq_pivot_loaded()
+                return
+            # Model changed — re-initialize
+            logger.info(
+                "Model setting changed from '%s' to '%s', re-initializing",
+                cached_model,
+                model_id,
+            )
 
         # Get model provider utility
         model_provider = queryUtility(IEmbeddingModelProvider, name=model_id)
@@ -209,6 +232,8 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
             model_provider = queryUtility(IEmbeddingModelProvider, name="all-minilm-l6")
 
         self._v_model_provider = model_provider
+        self._v_model_id = model_id
+        self._v_chunk_size = chunk_size
 
         # Get prefixes from model provider
         prefix_query = getattr(model_provider, "query_prefix", None)
@@ -221,13 +246,40 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
             prefix_passage=prefix_passage,
         )
 
-        # Load ITQ data if needed (Phase 2: not implemented yet)
+        # Load ITQ data if needed
         if approx_algo in ("itq_lsh_2stage", "itq_lsh_3stage"):
             self._v_itq_boundary = model_provider.get_itq_boundary()
             self._v_pivot_data = model_provider.get_pivot_data()
 
         # Initialize similarity algorithm
         self._v_similarity_algorithm = CosineSimilarityAlgorithm()
+
+    def _ensure_itq_pivot_loaded(self):
+        """Load ITQ boundary and pivot data if the algorithm requires it.
+
+        Called when _ensure_initialized() detects embedding is already loaded
+        but the user may have changed the approximation algorithm setting.
+        """
+        settings = self._get_settings()
+        approx_algo = settings.get("approximation_algorithm", "exhaustive_cosine")
+        if approx_algo not in ("itq_lsh_2stage", "itq_lsh_3stage"):
+            return
+        if getattr(self, "_v_itq_boundary", None) is not None:
+            return
+        model_provider = getattr(self, "_v_model_provider", None)
+        if model_provider is None:
+            return
+        try:
+            self._v_itq_boundary = model_provider.get_itq_boundary()
+            self._v_pivot_data = model_provider.get_pivot_data()
+            logger.info(
+                "Loaded ITQ/pivot data for %s (itq=%s, pivot=%s)",
+                approx_algo,
+                self._v_itq_boundary is not None,
+                self._v_pivot_data is not None,
+            )
+        except Exception as e:
+            logger.warning("Failed to load ITQ/pivot data: %s", e)
 
     @property
     def embedding(self):
@@ -272,8 +324,8 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
                 "pivot_threshold": registry(
                     "collective.vectorsearch.pivot_threshold", default=200
                 ),
-                "hamming_distance_threshold": registry(
-                    "collective.vectorsearch.hamming_distance_threshold", default=3
+                "itq_candidates": registry(
+                    "collective.vectorsearch.itq_candidates", default=100
                 ),
             }
 
@@ -298,7 +350,11 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
             )
 
         # Approximation algorithm implementation status
-        implemented_algorithms = ["exhaustive_cosine"]
+        implemented_algorithms = [
+            "exhaustive_cosine",
+            "itq_lsh_2stage",
+            "itq_lsh_3stage",
+        ]
         if settings["approximation_algorithm"] not in implemented_algorithms:
             logger.warning(
                 f"Approximation algorithm '{settings['approximation_algorithm']}' is not yet implemented. "
@@ -314,7 +370,7 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
             "external_db_uri": "",
             "approximation_algorithm": "exhaustive_cosine",
             "pivot_threshold": 200,
-            "hamming_distance_threshold": 3,
+            "itq_candidates": 100,
         }
 
     def _change_length(self, name, value):
@@ -525,22 +581,357 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
     security.declareProtected(search_zcatalog, "query_index")
 
     def query_index(self, record, resultset=None):
+        """Dispatch vector search to the configured approximation algorithm.
+
+        Supports:
+        - exhaustive_cosine: Brute-force cosine similarity on all documents
+        - itq_lsh_2stage: Hamming distance filtering → cosine similarity
+        - itq_lsh_3stage: Pivot range filtering → Hamming → cosine similarity
+
+        Falls back to exhaustive_cosine if required data (ITQ/pivot) is unavailable.
+        """
         query_str = " ".join(record.keys)
         if not query_str:
             return None
-        query = self.embedding.embed(query_str, query=True)
+
+        query_vectors = self.embedding.embed(query_str, query=True)
+        settings = self._get_settings()
+        algo = settings.get("approximation_algorithm", "exhaustive_cosine")
+
+        # For ITQ/pivot algorithms, compute passage-space embedding for hash
+        # computation. ITQ boundaries and pivot data were trained on passage
+        # embeddings, so the query must be in the same vector space for
+        # meaningful Hamming distance / pivot distance comparisons.
+        # The query-prefixed embedding is still used for final cosine scoring.
+        passage_vectors = None
+        if algo in ("itq_lsh_2stage", "itq_lsh_3stage"):
+            passage_vectors = self.embedding.embed(query_str, query=False)
+
+        # Layered fallback: 3-stage → 2-stage → exhaustive
+        if algo == "itq_lsh_3stage":
+            itq = getattr(self, "_v_itq_boundary", None)
+            pivot = getattr(self, "_v_pivot_data", None)
+            if itq and pivot:
+                result = self._query_itq_lsh_3stage(
+                    query_vectors, passage_vectors, settings
+                )
+                if result is not None:
+                    return result
+            if itq:
+                logger.warning("Pivot data unavailable, downgrading 3-stage to 2-stage")
+                result = self._query_itq_lsh_2stage(
+                    query_vectors, passage_vectors, settings
+                )
+                if result is not None:
+                    return result
+            logger.warning("Falling back to exhaustive cosine search")
+
+        elif algo == "itq_lsh_2stage":
+            itq = getattr(self, "_v_itq_boundary", None)
+            if itq:
+                result = self._query_itq_lsh_2stage(
+                    query_vectors, passage_vectors, settings
+                )
+                if result is not None:
+                    return result
+            logger.warning(
+                "ITQ data unavailable, falling back to exhaustive cosine search"
+            )
+
+        return self._query_exhaustive_cosine(query_vectors)
+
+    def _query_exhaustive_cosine(self, query_vectors):
+        """Exhaustive cosine similarity search on all documents.
+
+        Reads all vectors from catalog metadata (llm_vector column).
+        """
         docids, vectors = self._get_all_doc_vectors()
-        indices, scores = self.similarity_algorithm(vectors, query)
+        if vectors.size == 0:
+            return IIBucket()
+        indices, scores = self.similarity_algorithm(vectors, query_vectors)
         bucket = IIBucket()
         for docid, score in zip(docids[indices], scores):
             int_docid = int(docid)
-            if int_docid in bucket:
-                pass
-                # bucket[int_docid] += int(score * 100_000_000)
+            if int_docid not in bucket:
+                bucket[int_docid] = int(score * 100_000_000)
+        return bucket
+
+    def _query_itq_lsh_2stage(self, query_vectors, passage_vectors, settings):
+        """2-stage search: Hamming distance ranking → cosine similarity.
+
+        Stage 2: Scans itq_hashes from catalog METADATA for all documents,
+                 ranks by Hamming distance and keeps top N candidates.
+        Stage 3: Loads llm_vector from catalog METADATA for candidates only,
+                 computes precise cosine similarity.
+
+        Args:
+            query_vectors: Query-prefixed embeddings (for cosine similarity)
+            passage_vectors: Passage-prefixed embeddings (for ITQ hash computation)
+            settings: Configuration dict
+        """
+        t0 = time.perf_counter()
+        itq_boundary = self._v_itq_boundary
+        itq_candidates = settings.get("itq_candidates", 100)
+
+        # Compute query ITQ hash using passage-space embedding
+        # (ITQ boundary was trained on passage embeddings)
+        pv = passage_vectors[0] if passage_vectors.ndim == 2 else passage_vectors
+        query_hash = binary_hash_to_integers(itq_boundary.compute_hash(pv))
+        if query_hash[0] is None:
+            logger.warning("Failed to compute query ITQ hash")
+            return None
+
+        # Stage 2: Scan itq_hashes from catalog METADATA, rank by Hamming distance
+        try:
+            catalog = api.portal.get_tool("portal_catalog")
+        except Exception:
+            logger.warning("Cannot access catalog for 2-stage search")
+            return None
+
+        scored_docs = []  # [(hamming_distance, docid), ...]
+        total_docs = 0
+        docs_with_hashes = 0
+        docs_without_hashes = 0
+
+        for docid in self._docid_to_path:
+            total_docs += 1
+            try:
+                metadata = catalog.getMetadataForRID(docid)
+                if not metadata:
+                    continue
+                doc_hashes = metadata.get("itq_hashes")
+                if not doc_hashes:
+                    docs_without_hashes += 1
+                    continue
+                docs_with_hashes += 1
+                min_dist = batch_min_hamming_distance(query_hash, doc_hashes)
+                scored_docs.append((min_dist, docid))
+            except Exception:
+                continue
+
+        # Sort by Hamming distance (ascending) and take top N
+        scored_docs.sort(key=lambda x: x[0])
+        candidate_docids = [docid for _, docid in scored_docs[:itq_candidates]]
+
+        t1 = time.perf_counter()
+        top_distances = [d for d, _ in scored_docs[:itq_candidates]]
+        logger.info(
+            "2-stage Stage 2 (hamming ranking): %d -> %d candidates in %.4fs"
+            " (with_hashes=%d, without=%d, top_distances=%s)",
+            total_docs,
+            len(candidate_docids),
+            t1 - t0,
+            docs_with_hashes,
+            docs_without_hashes,
+            top_distances[:20] if top_distances else "none",
+        )
+
+        if not candidate_docids:
+            return IIBucket()
+
+        # Stage 3: Cosine on candidates (reads llm_vector from METADATA)
+        result = self._cosine_on_candidates(query_vectors, candidate_docids, catalog)
+        t2 = time.perf_counter()
+        logger.info(
+            "2-stage Stage 3 (cosine METADATA): %d candidates -> %d results in %.4fs",
+            len(candidate_docids),
+            len(result),
+            t2 - t1,
+        )
+        logger.info("Total 2-stage search: %.4fs", t2 - t0)
+        return result
+
+    def _query_itq_lsh_3stage(self, query_vectors, passage_vectors, settings):
+        """3-stage search: Pivot INDEX → Hamming ranking → Cosine METADATA.
+
+        Stage 1: Uses pivot1-8 KeywordIndex range queries to filter candidates.
+        Stage 2: Reads itq_hashes from catalog METADATA for Stage 1 candidates,
+                 ranks by Hamming distance and keeps top N.
+        Stage 3: Loads llm_vector from catalog METADATA for Stage 2 candidates,
+                 computes precise cosine similarity.
+
+        Args:
+            query_vectors: Query-prefixed embeddings (for cosine similarity)
+            passage_vectors: Passage-prefixed embeddings (for ITQ hash and pivot computation)
+            settings: Configuration dict
+        """
+        t0 = time.perf_counter()
+        itq_boundary = self._v_itq_boundary
+        pivot_data = self._v_pivot_data
+        pivot_threshold = settings.get("pivot_threshold", 200)
+        itq_candidates = settings.get("itq_candidates", 100)
+
+        # Use passage-space embedding for pivot/ITQ (trained on passage embeddings)
+        pv = passage_vectors[0] if passage_vectors.ndim == 2 else passage_vectors
+
+        # Stage 1: Pivot range filter (uses catalog INDEXES: pivot1-8)
+        query_pivot_distances = pivot_data.compute_distances(pv)
+        query_pivot_distances_int = [
+            int(round(d * 1000)) for d in query_pivot_distances
+        ]
+
+        stage1_candidates = self._pivot_filter(
+            query_pivot_distances_int, pivot_threshold
+        )
+        # Only keep candidates in our VectorIndex
+        our_docids = IISet(self._docid_to_path.keys())
+        stage1_candidates = intersection(stage1_candidates, our_docids)
+
+        t1 = time.perf_counter()
+        logger.info(
+            "3-stage Stage 1 (pivot INDEX): %d -> %d candidates in %.4fs",
+            len(our_docids),
+            len(stage1_candidates) if stage1_candidates else 0,
+            t1 - t0,
+        )
+
+        if not stage1_candidates:
+            return IIBucket()
+
+        # Stage 2: Hamming ranking (uses catalog METADATA: itq_hashes)
+        query_hash = binary_hash_to_integers(itq_boundary.compute_hash(pv))
+        if query_hash[0] is None:
+            logger.warning("Failed to compute query ITQ hash for 3-stage")
+            return None
+
+        try:
+            catalog = api.portal.get_tool("portal_catalog")
+        except Exception:
+            logger.warning("Cannot access catalog for 3-stage search")
+            return None
+
+        scored_docs = []  # [(hamming_distance, docid), ...]
+        for docid in stage1_candidates:
+            try:
+                metadata = catalog.getMetadataForRID(docid)
+                if not metadata:
+                    continue
+                doc_hashes = metadata.get("itq_hashes")
+                if not doc_hashes:
+                    continue
+                min_dist = batch_min_hamming_distance(query_hash, doc_hashes)
+                scored_docs.append((min_dist, docid))
+            except Exception:
+                continue
+
+        # Sort by Hamming distance (ascending) and take top N
+        scored_docs.sort(key=lambda x: x[0])
+        stage2_candidates = [docid for _, docid in scored_docs[:itq_candidates]]
+
+        t2 = time.perf_counter()
+        top_distances = [d for d, _ in scored_docs[:itq_candidates]]
+        logger.info(
+            "3-stage Stage 2 (hamming ranking): %d -> %d candidates in %.4fs"
+            " (top_distances=%s)",
+            len(stage1_candidates) if stage1_candidates else 0,
+            len(stage2_candidates),
+            t2 - t1,
+            top_distances[:20] if top_distances else "none",
+        )
+
+        if not stage2_candidates:
+            return IIBucket()
+
+        # Stage 3: Cosine similarity (uses catalog METADATA: llm_vector)
+        result = self._cosine_on_candidates(query_vectors, stage2_candidates, catalog)
+        t3 = time.perf_counter()
+        logger.info(
+            "3-stage Stage 3 (cosine METADATA): %d candidates -> %d results in %.4fs",
+            len(stage2_candidates),
+            len(result),
+            t3 - t2,
+        )
+        logger.info("Total 3-stage search: %.4fs", t3 - t0)
+        return result
+
+    def _pivot_filter(self, query_pivot_distances_int, pivot_threshold):
+        """Stage 1: Pivot range filtering using KeywordIndex range queries.
+
+        Uses catalog INDEX (pivot1-8 KeywordIndex) with range='min:max'.
+        Each pivot's result is intersected to find documents matching ALL pivots.
+
+        Args:
+            query_pivot_distances_int: List of 8 integer pivot distances for query
+            pivot_threshold: Integer threshold for range (e.g. 200 = ±0.200)
+
+        Returns:
+            IISet of candidate document RIDs
+        """
+        try:
+            catalog = api.portal.get_tool("portal_catalog")
+        except Exception:
+            return IISet()
+
+        candidate_set = None
+
+        for i in range(8):
+            pivot_name = f"pivot{i + 1}"
+            if pivot_name not in catalog.Indexes:
+                continue
+
+            index = catalog.Indexes[pivot_name]
+            q_dist = query_pivot_distances_int[i]
+            min_val = max(0, q_dist - pivot_threshold)
+            max_val = q_dist + pivot_threshold
+
+            # Use IndexQuery for range query on KeywordIndex
+            query_dict = {pivot_name: {"query": [min_val, max_val], "range": "min:max"}}
+            index_query = IndexQuery(
+                query_dict,
+                pivot_name,
+                index.query_options,
+                index.operators,
+                index.useOperator,
+            )
+            result = index.query_index(index_query)
+
+            if result is None or len(result) == 0:
+                return IISet()  # No matches for this pivot, short circuit
+
+            if candidate_set is None:
+                candidate_set = IISet(result)
             else:
-                # Convert float score to integer for Zope catalog compatibility.
-                # Multiply by 100,000,000 to preserve 8 decimal places of precision.
-                # Zope's IIBucket requires integer values for scoring.
+                candidate_set = intersection(candidate_set, IISet(result))
+
+            if not candidate_set:
+                return IISet()
+
+        return candidate_set or IISet()
+
+    def _cosine_on_candidates(self, query_vectors, candidate_docids, catalog):
+        """Stage 3: Cosine similarity on candidate documents only.
+
+        Reads llm_vector from catalog METADATA for candidates, computes cosine
+        similarity, and returns scored results as IIBucket.
+        """
+        all_docids = []
+        all_vectors = []
+
+        for docid in candidate_docids:
+            try:
+                metadata = catalog.getMetadataForRID(docid)
+                if not metadata:
+                    continue
+                vectors_list = metadata.get("llm_vector")
+                if not vectors_list:
+                    continue
+                vectors = np.array(vectors_list)
+                all_docids.extend([docid] * len(vectors))
+                all_vectors.append(vectors)
+            except Exception:
+                continue
+
+        if not all_vectors:
+            return IIBucket()
+
+        vectors = np.concatenate(all_vectors)
+        docids = np.array(all_docids, dtype=int)
+        indices, scores = self.similarity_algorithm(vectors, query_vectors)
+
+        bucket = IIBucket()
+        for docid, score in zip(docids[indices], scores):
+            int_docid = int(docid)
+            if int_docid not in bucket:
                 bucket[int_docid] = int(score * 100_000_000)
         return bucket
 

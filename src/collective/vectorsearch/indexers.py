@@ -262,6 +262,34 @@ def compute_min_hamming_distance(query_hash, doc_hashes):
     return int(min_distance) if min_distance != float("inf") else None
 
 
+def batch_min_hamming_distance(query_hash_ints, doc_hashes):
+    """Compute minimum Hamming distance between query hash and document chunk hashes.
+
+    Uses Python 3.10+ int.bit_count() for fast popcount.
+
+    Args:
+        query_hash_ints: (high_64bit, low_64bit) tuple for query
+        doc_hashes: sequence of (high_64bit, low_64bit) tuples for document chunks
+
+    Returns:
+        int: minimum Hamming distance (0-128), or 129 if doc_hashes is empty
+    """
+    if not doc_hashes:
+        return 129
+
+    q_high, q_low = query_hash_ints
+    min_dist = 129
+
+    for doc_high, doc_low in doc_hashes:
+        dist = (q_high ^ doc_high).bit_count() + (q_low ^ doc_low).bit_count()
+        if dist < min_dist:
+            min_dist = dist
+            if dist == 0:
+                break
+
+    return min_dist
+
+
 def distance_to_index_value(distance, scale=1000):
     """Convert float distance to integer for index storage.
 
