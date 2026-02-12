@@ -5,6 +5,8 @@ from logging import getLogger
 
 from BTrees.OOBTree import OOBTree
 from plone import api
+from plone.registry import Record
+from plone.registry import field as registry_field
 from zope.annotation.interfaces import IAnnotations
 
 from collective.vectorsearch.annotations import (
@@ -261,8 +263,6 @@ def upgrade_to_1005(context):
     as it re-imports the full registry/main.xml and resets ALL settings
     (including embedding_model) to their XML defaults.
     """
-    from plone.registry import Record, field as registry_field
-
     registry = api.portal.get_tool("portal_registry")
     old_key = "collective.vectorsearch.hamming_distance_threshold"
     new_key = "collective.vectorsearch.itq_candidates"
