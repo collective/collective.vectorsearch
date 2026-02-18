@@ -53,19 +53,19 @@ Running tests
 list all tox environments::
 
     $ tox -l
-    py27-Plone43
-    py27-Plone51
-    py27-Plone52
-    py37-Plone52
-    build_instance
-    code-analysis
-    lint-py27
-    lint-py37
-    coverage-report
+    py310-lint
+    py311-lint
+    py312-lint
+    py313-lint
+    ruff-check
+    py310-Plone61
+    py311-Plone61
+    py312-Plone61
+    py313-Plone61
 
 run a specific tox env::
 
-    $ tox -e py37-Plone52
+    $ tox -e py311-Plone61
 
 
 CI Github-Actions / codecov

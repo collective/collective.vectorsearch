@@ -2,6 +2,32 @@ Changelog
 =========
 
 
+1.0a3 (unreleased)
+------------------
+
+Breaking changes:
+
+- Switch to PEP 420 implicit namespace packages. Remove
+  ``src/collective/__init__.py`` with ``pkg_resources.declare_namespace()``.
+  [terapyon]
+
+- Migrate build configuration from ``setup.py`` to ``pyproject.toml``.
+  [terapyon]
+
+- Drop Plone 6.0 support. Plone 6.1+ is now required.
+  [terapyon]
+
+Internal:
+
+- Add ``plone.autoinclude.plugin`` entry point alongside existing
+  ``z3c.autoinclude.plugin`` entry point.
+  [terapyon]
+
+- Replace ``pkg_resources`` usage in ``locales/update.py`` with
+  ``pathlib.Path``.
+  [terapyon]
+
+
 1.0a2 (unreleased)
 ------------------
 
@@ -87,7 +113,7 @@ Features:
   catalog data retained during reinstall.
   [terapyon]
 
-- Support Python 3.10 - 3.13 and Plone 6.0 / 6.1.
+- Support Python 3.10 - 3.13 and Plone 6.1+.
   [terapyon]
 
 - Initial release.

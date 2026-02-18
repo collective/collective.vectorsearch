@@ -1,13 +1,15 @@
-# -*- coding: utf-8 -*-
-
 import os
 import subprocess
-
-import pkg_resources
+from pathlib import Path
 
 domain = "collective.vectorsearch"
-os.chdir(pkg_resources.resource_filename(domain, ""))
-os.chdir("../../../")
+
+# Use file location to find project root
+# locales/update.py -> vectorsearch/ -> collective/ -> src/ -> project_root/
+_package_dir = Path(__file__).resolve().parent.parent  # collective/vectorsearch/
+_project_root = _package_dir.parent.parent  # above src/
+os.chdir(_project_root)
+
 target_path = "src/collective/vectorsearch/"
 locale_path = target_path + "locales/"
 i18ndude = "./bin/i18ndude"

@@ -1,6 +1,7 @@
 graft src/collective
 graft docs
 include *.rst
+include pyproject.toml
 exclude tox.ini
 exclude *.txt
 exclude .gitlab-ci.yml
