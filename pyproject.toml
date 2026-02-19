@@ -1,5 +1,80 @@
+[build-system]
+requires = ["setuptools>=69.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "collective.vectorsearch"
+version = "1.0a3"
+description = "LLM vector search on Plone"
+readme = "README.rst"
+requires-python = ">=3.10"
+license = {text = "GPL version 2"}
+keywords = ["Python", "Plone", "CMS"]
+authors = [{name = "Manabu TERADA", email = "terada@cmscom.jp"}]
+classifiers = [
+    "Environment :: Web Environment",
+    "Framework :: Plone",
+    "Framework :: Plone :: Addon",
+    "Framework :: Plone :: 6.0",
+    "Framework :: Plone :: 6.1",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+    "License :: OSI Approved :: GNU General Public License v2 (GPLv2)",
+]
+dependencies = [
+    "setuptools",
+    "plone.api>=1.8.4",
+    "plone.app.dexterity",
+    "plone.app.registry",
+    "numpy",
+    "fastembed>=0.2.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "plone.app.testing",
+    "plone.testing>=5.0.0",
+    "plone.app.contenttypes",
+    "plone.app.robotframework[debug]",
+    "plone.restapi",
+]
+gpu = [
+    "torch",
+    "sentence_transformers",
+    "transformers",
+    "accelerate",
+]
+
+[project.urls]
+PyPI = "https://pypi.org/project/collective.vectorsearch/"
+Source = "https://github.com/collective/collective.vectorsearch"
+Tracker = "https://github.com/collective/collective.vectorsearch/issues"
+
+[project.scripts]
+update_locale = "collective.vectorsearch.locales.update:update_locale"
+vectorsearch-download = "collective.vectorsearch.offline:main"
+
+[project.entry-points."z3c.autoinclude.plugin"]
+target = "plone"
+
+[project.entry-points."plone.autoinclude.plugin"]
+target = "plone"
+module = "collective.vectorsearch"
+
+[tool.setuptools]
+include-package-data = true
+zip-safe = false
+
+[tool.setuptools.packages.find]
+where = ["src"]
+namespaces = true
+
 [tool.ruff]
-target-version = "py39"
+target-version = "py310"
 line-length = 88
 
 [tool.ruff.lint]

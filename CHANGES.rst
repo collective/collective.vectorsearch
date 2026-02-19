@@ -2,6 +2,31 @@ Changelog
 =========
 
 
+1.0a3 (unreleased)
+------------------
+
+Breaking changes:
+
+- Migrate build configuration from ``setup.py`` to ``pyproject.toml``.
+  ``setup.py`` is kept as a minimal shim for ``zc.buildout`` compatibility.
+  [terapyon]
+
+- Update ``src/collective/__init__.py`` to gracefully handle missing
+  ``pkg_resources`` (setuptools >= 82). Falls back to PEP 420 implicit
+  namespace packages when ``pkg_resources`` is unavailable.
+  [terapyon]
+
+Internal:
+
+- Add ``plone.autoinclude.plugin`` entry point alongside existing
+  ``z3c.autoinclude.plugin`` entry point.
+  [terapyon]
+
+- Replace ``pkg_resources`` usage in ``locales/update.py`` with
+  ``pathlib.Path``.
+  [terapyon]
+
+
 1.0a2 (unreleased)
 ------------------
 
@@ -87,7 +112,7 @@ Features:
   catalog data retained during reinstall.
   [terapyon]
 
-- Support Python 3.10 - 3.13 and Plone 6.0 / 6.1.
+- Support Python 3.10 - 3.13 and Plone 6.0+.
   [terapyon]
 
 - Initial release.

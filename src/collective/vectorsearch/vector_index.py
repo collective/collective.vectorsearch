@@ -650,7 +650,7 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
             return IIBucket()
         indices, scores = self.similarity_algorithm(vectors, query_vectors)
         bucket = IIBucket()
-        for docid, score in zip(docids[indices], scores):
+        for docid, score in zip(docids[indices], scores, strict=False):
             int_docid = int(docid)
             if int_docid not in bucket:
                 bucket[int_docid] = int(score * 100_000_000)
@@ -929,7 +929,7 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
         indices, scores = self.similarity_algorithm(vectors, query_vectors)
 
         bucket = IIBucket()
-        for docid, score in zip(docids[indices], scores):
+        for docid, score in zip(docids[indices], scores, strict=False):
             int_docid = int(docid)
             if int_docid not in bucket:
                 bucket[int_docid] = int(score * 100_000_000)
