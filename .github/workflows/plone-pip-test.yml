@@ -30,7 +30,7 @@ jobs:
       - name: Install package with Plone 6.1 constraints
         run: |
           python -m pip install --upgrade pip
-          pip install -c https://dist.plone.org/release/6.1-latest/constraints.txt -e ".[test]"
+          pip install -c https://dist.plone.org/release/6.1-latest/constraints.txt ".[test]"
           pip install zope.testrunner
       - name: Verify namespace package resolution
         run: |
@@ -38,7 +38,8 @@ jobs:
           python -c "from collective.vectorsearch.vector_index import VectorIndex; print('OK: VectorIndex')"
       - name: Run tests
         run: |
-          python -m zope.testrunner --test-path=src -s collective.vectorsearch -v1 --auto-color
+          SITE_PACKAGES=$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
+          python -m zope.testrunner --test-path=$SITE_PACKAGES -s collective.vectorsearch -v1 --auto-color
 
   test-pep420:
     name: "PEP 420 fallback (setuptools>=82, Python ${{ matrix.python-version }})"
@@ -61,7 +62,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install 'setuptools>=82'
-          pip install -c https://dist.plone.org/release/6.1-latest/constraints.txt -e ".[test]"
+          pip install -c https://dist.plone.org/release/6.1-latest/constraints.txt ".[test]"
           pip install zope.testrunner
       - name: Verify pkg_resources is unavailable
         run: |
@@ -72,4 +73,5 @@ jobs:
           python -c "from collective.vectorsearch.vector_index import VectorIndex; print('OK: VectorIndex')"
       - name: Run tests
         run: |
-          python -m zope.testrunner --test-path=src -s collective.vectorsearch -v1 --auto-color
+          SITE_PACKAGES=$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
+          python -m zope.testrunner --test-path=$SITE_PACKAGES -s collective.vectorsearch -v1 --auto-color
