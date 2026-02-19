@@ -62,7 +62,7 @@ Features
 Requirements
 ------------
 
-- Plone 6.1+
+- Plone 6.0 or 6.1+
 - Python 3.10 - 3.13
 
 

@@ -7,14 +7,13 @@ Changelog
 
 Breaking changes:
 
-- Switch to PEP 420 implicit namespace packages. Remove
-  ``src/collective/__init__.py`` with ``pkg_resources.declare_namespace()``.
-  [terapyon]
-
 - Migrate build configuration from ``setup.py`` to ``pyproject.toml``.
+  ``setup.py`` is kept as a minimal shim for ``zc.buildout`` compatibility.
   [terapyon]
 
-- Drop Plone 6.0 support. Plone 6.1+ is now required.
+- Update ``src/collective/__init__.py`` to gracefully handle missing
+  ``pkg_resources`` (setuptools >= 82). Falls back to PEP 420 implicit
+  namespace packages when ``pkg_resources`` is unavailable.
   [terapyon]
 
 Internal:
@@ -113,7 +112,7 @@ Features:
   catalog data retained during reinstall.
   [terapyon]
 
-- Support Python 3.10 - 3.13 and Plone 6.1+.
+- Support Python 3.10 - 3.13 and Plone 6.0+.
   [terapyon]
 
 - Initial release.

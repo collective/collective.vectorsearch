@@ -37,14 +37,27 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ['3.10', '3.11', '3.12', '3.13']
+        plone-version: ['Plone61']
         include:
+          # Plone 6.0 (old-style buildout + pkg_resources)
           - python-version: '3.10'
+            plone-version: 'Plone60'
+            tox-envs: 'py310-Plone60'
+          - python-version: '3.11'
+            plone-version: 'Plone60'
+            tox-envs: 'py311-Plone60'
+          # Plone 6.1 (buildout + pkg_resources)
+          - python-version: '3.10'
+            plone-version: 'Plone61'
             tox-envs: 'py310-Plone61'
           - python-version: '3.11'
+            plone-version: 'Plone61'
             tox-envs: 'py311-Plone61'
           - python-version: '3.12'
+            plone-version: 'Plone61'
             tox-envs: 'py312-Plone61'
           - python-version: '3.13'
+            plone-version: 'Plone61'
             tox-envs: 'py313-Plone61'
 
     steps:
@@ -55,7 +68,7 @@ jobs:
             ~/.cache/pip
             ~/buildout-cache
             ~/extends
-          key: ${{ runner.os }}-tox-${{ matrix.python-version }}-${{ hashFiles('**/pyproject.toml') }}-${{ hashFiles('**/requirements*.txt') }}-${{ hashFiles('**/*.cfg') }}-${{ hashFiles('**/constraints*.txt') }}-${{ hashFiles('**/tox.ini') }}
+          key: ${{ runner.os }}-tox-${{ matrix.python-version }}-${{ matrix.plone-version }}-${{ hashFiles('**/pyproject.toml') }}-${{ hashFiles('**/requirements*.txt') }}-${{ hashFiles('**/*.cfg') }}-${{ hashFiles('**/constraints*.txt') }}-${{ hashFiles('**/tox.ini') }}
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:

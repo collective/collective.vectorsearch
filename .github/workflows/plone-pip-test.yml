@@ -1,0 +1,75 @@
+# Test with pip install (no buildout) to verify PEP 420 namespace fallback
+# and modern pip-based Plone installation
+
+name: Plone pip test
+
+on:
+  push:
+    branches: [main, test]
+  pull_request:
+    branches: [main, test]
+
+jobs:
+  test-pip:
+    name: "pip + zope.testrunner (Plone 6.1, Python ${{ matrix.python-version }})"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('**/pyproject.toml') }}
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install package with Plone 6.1 constraints
+        run: |
+          python -m pip install --upgrade pip
+          pip install -c https://dist.plone.org/release/6.1-latest/constraints.txt -e ".[test]"
+          pip install zope.testrunner
+      - name: Verify namespace package resolution
+        run: |
+          python -c "from collective.vectorsearch.interfaces import IVectorSearchSettings; print('OK: IVectorSearchSettings')"
+          python -c "from collective.vectorsearch.vector_index import VectorIndex; print('OK: VectorIndex')"
+      - name: Run tests
+        run: |
+          python -m zope.testrunner --test-path=src -s collective.vectorsearch -v1 --auto-color
+
+  test-pep420:
+    name: "PEP 420 fallback (setuptools>=82, Python ${{ matrix.python-version }})"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pep420-${{ matrix.python-version }}-${{ hashFiles('**/pyproject.toml') }}
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install package with setuptools>=82
+        run: |
+          python -m pip install --upgrade pip
+          pip install 'setuptools>=82'
+          pip install -c https://dist.plone.org/release/6.1-latest/constraints.txt -e ".[test]"
+          pip install zope.testrunner
+      - name: Verify pkg_resources is unavailable
+        run: |
+          python -c "import pkg_resources" 2>&1 && echo "WARN: pkg_resources still available" || echo "OK: pkg_resources not available (PEP 420 fallback active)"
+      - name: Verify namespace package resolution
+        run: |
+          python -c "from collective.vectorsearch.interfaces import IVectorSearchSettings; print('OK: IVectorSearchSettings')"
+          python -c "from collective.vectorsearch.vector_index import VectorIndex; print('OK: VectorIndex')"
+      - name: Run tests
+        run: |
+          python -m zope.testrunner --test-path=src -s collective.vectorsearch -v1 --auto-color
