@@ -94,6 +94,16 @@
     />
   </genericsetup:upgradeSteps>
 
+  <genericsetup:upgradeSteps
+      source="1005"
+      destination="1006"
+      profile="collective.vectorsearch:default">
+    <genericsetup:upgradeStep
+        title="Add Voronoi cell index and settings"
+        handler=".upgrades.upgrade_to_1006"
+    />
+  </genericsetup:upgradeSteps>
+
   <!-- Event subscribers for computing embeddings on content changes -->
   <subscriber
       for="Products.CMFCore.interfaces.IContentish
@@ -177,5 +187,8 @@
   <adapter factory=".indexers.pivot6" name="pivot6" />
   <adapter factory=".indexers.pivot7" name="pivot7" />
   <adapter factory=".indexers.pivot8" name="pivot8" />
+
+  <!-- Voronoi cell indexer (cell IDs for Voronoi partition filtering) -->
+  <adapter factory=".indexers.voronoi_cells" name="voronoi_cells" />
 
 </configure>

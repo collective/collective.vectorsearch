@@ -14,6 +14,8 @@
     <value key="approximation_algorithm">exhaustive_cosine</value>
     <value key="pivot_threshold">200</value>
     <value key="itq_candidates">100</value>
+    <value key="voronoi_n_assign">2</value>
+    <value key="voronoi_n_probe">5</value>
   </records>
 
 </registry>

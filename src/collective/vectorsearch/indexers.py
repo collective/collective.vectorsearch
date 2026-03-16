@@ -38,6 +38,9 @@ from collective.vectorsearch.annotations import (
 from collective.vectorsearch.annotations import (
     get_vectors as get_vectors_from_annotations,
 )
+from collective.vectorsearch.annotations import (
+    get_voronoi_cells as get_voronoi_cells_from_annotations,
+)
 
 logger = logging.getLogger("collective.vectorsearch")
 
@@ -164,6 +167,37 @@ def pivot7(obj):
 def pivot8(obj):
     """Indexer for distances to pivot 8 (all chunks)."""
     return _get_pivot_distances_for_index(obj, 7)
+
+
+# Voronoi Cell Indexer (KeywordIndex)
+
+
+@indexer(IContentish)
+def voronoi_cells(obj):
+    """Indexer for Voronoi cell assignments (all chunks).
+
+    Reads pre-computed Voronoi cell IDs from content annotations.
+    Returns a deduplicated tuple of cell IDs across all chunks
+    for storage in a KeywordIndex.
+
+    Multi-assign: each chunk may be assigned to multiple cells,
+    so we flatten and deduplicate.
+
+    Returns:
+        tuple: Tuple of unique cell IDs (integers), or None
+    """
+    try:
+        cells = get_voronoi_cells_from_annotations(obj)
+        if cells:
+            # Flatten: [[12, 45], [78, 23]] -> (12, 23, 45, 78)
+            result = []
+            for chunk_cells in cells:
+                result.extend(chunk_cells)
+            if result:
+                return tuple(set(result))
+    except Exception as e:
+        logger.debug(f"Could not get voronoi_cells from annotations: {e}")
+    return None
 
 
 # Utility functions for search

@@ -31,6 +31,12 @@
     <indexed_attr value="pivot8"/>
   </index>
 
+  <!-- Voronoi cell assignments for partition-based filtering -->
+  <!-- KeywordIndex stores cell IDs for each document -->
+  <index name="voronoi_cells" meta_type="KeywordIndex">
+    <indexed_attr value="voronoi_cells"/>
+  </index>
+
   <!-- ITQ hash metadata for stage 2 filtering (Hamming distance) -->
   <!-- List of (high_64bit, low_64bit) tuples for each chunk -->
   <column value="itq_hashes"/>

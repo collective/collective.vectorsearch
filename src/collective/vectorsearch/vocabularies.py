@@ -165,6 +165,11 @@ class ApproximationAlgorithmsVocabulary:
                     token="itq_lsh_3stage",
                     title="ITQ LSH 3-stage",
                 ),
+                SimpleTerm(
+                    value="voronoi_2stage",
+                    token="voronoi_2stage",
+                    title="Voronoi 2-stage",
+                ),
             ]
         )
 

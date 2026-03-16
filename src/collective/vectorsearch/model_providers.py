@@ -10,8 +10,10 @@ from collective.vectorsearch import embedding as emb_module
 from collective.vectorsearch.data_loader import (
     load_itq_data,
     load_pivot_data,
+    load_voronoi_data,
     validate_itq_data,
     validate_pivot_data,
+    validate_voronoi_data,
 )
 from collective.vectorsearch.interfaces import IEmbeddingModelProvider
 from collective.vectorsearch.vector_index import ModelCache
@@ -241,6 +243,25 @@ class BaseEmbeddingModelProvider:
             return None
 
         return pivot_data
+
+    def get_voronoi_data(self):
+        """Load and return Voronoi centroid data for this model.
+
+        Returns:
+            VoronoiData instance or None if not available/invalid
+        """
+        data_id = self._get_data_file_id()
+        if not data_id:
+            return None
+
+        voronoi_data = load_voronoi_data(data_id)
+        if voronoi_data is None:
+            return None
+
+        if not validate_voronoi_data(voronoi_data, self.vector_dimensions):
+            return None
+
+        return voronoi_data
 
 
 # =============================================================================

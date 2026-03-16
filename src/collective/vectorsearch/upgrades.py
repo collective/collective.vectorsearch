@@ -283,3 +283,52 @@ def upgrade_to_1005(context):
         logger.info(f"Registry key {new_key} already exists, skipping")
 
     logger.info("collective.vectorsearch: Upgrade to version 1005 complete")
+
+
+def upgrade_to_1006(context):
+    """Add Voronoi cell index and registry keys.
+
+    Adds:
+    - voronoi_cells KeywordIndex for Voronoi partition filtering
+    - voronoi_n_assign, voronoi_n_probe registry keys
+    """
+    catalog = api.portal.get_tool("portal_catalog")
+
+    # Add voronoi_cells KeywordIndex
+    if "voronoi_cells" not in catalog.indexes():
+        catalog.addIndex("voronoi_cells", "KeywordIndex")
+        logger.info("Added KeywordIndex: voronoi_cells")
+    else:
+        logger.info("Index voronoi_cells already exists, skipping")
+
+    # Add registry keys
+    registry = api.portal.get_tool("portal_registry")
+
+    for key, title, default, min_val, max_val in [
+        (
+            "collective.vectorsearch.voronoi_n_assign",
+            "Voronoi Cell Assignments (Documents)",
+            2,
+            1,
+            10,
+        ),
+        (
+            "collective.vectorsearch.voronoi_n_probe",
+            "Voronoi Cell Probes (Query)",
+            5,
+            1,
+            50,
+        ),
+    ]:
+        if key not in registry.records:
+            registry.records[key] = Record(
+                registry_field.Int(
+                    title=title, default=default, min=min_val, max=max_val
+                ),
+                value=default,
+            )
+            logger.info(f"Created registry key: {key} = {default}")
+        else:
+            logger.info(f"Registry key {key} already exists, skipping")
+
+    logger.info("collective.vectorsearch: Upgrade to version 1006 complete")
