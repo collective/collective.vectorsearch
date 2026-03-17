@@ -27,6 +27,14 @@
       directory="static"
       />
 
+  <!-- Provisional JSON API for E2E testing -->
+  <browser:page
+      name="vectorsearch-api"
+      for="Products.CMFPlone.interfaces.IPloneSiteRoot"
+      class=".api.VectorSearchAPIView"
+      permission="cmf.ManagePortal"
+      />
+
   <browser:page
       name="vector-search"
       for="plone.app.layout.navigation.interfaces.INavigationRoot"

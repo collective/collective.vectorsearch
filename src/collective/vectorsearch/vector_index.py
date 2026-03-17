@@ -368,6 +368,11 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
             # Log current implementation status
             self._log_implementation_status(settings)
 
+            # Allow temporary override for testing API
+            override = getattr(self, "_settings_override", None)
+            if override:
+                settings.update(override)
+
             return settings
 
         except Exception as e:

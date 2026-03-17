@@ -36,6 +36,14 @@ Features:
   and Voronoi registry keys.
   [terapyon]
 
+- Add provisional JSON API endpoint (``@@vectorsearch-api``) for E2E testing
+  of different approximation algorithms. Accepts ``q``, ``limit``, and
+  ``algorithm`` parameters, returns search results as JSON. The ``algorithm``
+  parameter temporarily overrides the registry setting for that request only.
+  Not a public API; subject to removal or change without notice.
+  Usage: ``GET /Plone/@@vectorsearch-api?q=search+terms&algorithm=voronoi_2stage&limit=10``
+  [terapyon]
+
 Bug fixes:
 
 - Fix ``_reindex_all_vector_indexes()`` and ``_clear_all_vector_indexes()``
