@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Data loading utilities for ITQ and pivot data.
+"""Data loading utilities for ITQ, pivot, and Voronoi data.
 
 This module provides classes and functions to load pre-computed ITQ
-(Iterative Quantization) boundary data and pivot data for approximate
-nearest neighbor search.
+(Iterative Quantization) boundary data, pivot data, and Voronoi centroid
+data for approximate nearest neighbor search.
 
 Based on: https://github.com/cmscom/lsh-cascade-poc
 """
@@ -275,6 +275,114 @@ def validate_pivot_data(
         logger.error(
             f"Pivot shape mismatch: expected ({num_pivots}, {vector_dims}), "
             f"got {pivot_data.pivots.shape}"
+        )
+        return False
+
+    return True
+
+
+class VoronoiData:
+    """Container for Voronoi centroid data.
+
+    Centroids are L2-normalized vectors from K-Means clustering,
+    used to partition the embedding space into Voronoi cells for
+    approximate nearest neighbor search.
+
+    Attributes:
+        centroids: L2-normalized centroid vectors (n_clusters, vector_dims)
+    """
+
+    def __init__(self, centroids: np.ndarray):
+        self.centroids = centroids
+
+    @property
+    def n_clusters(self) -> int:
+        """Number of Voronoi cells (centroids)."""
+        return self.centroids.shape[0]
+
+    @property
+    def vector_dims(self) -> int:
+        """Dimensionality of centroid vectors."""
+        return self.centroids.shape[1]
+
+    def assign_cells(self, embedding: np.ndarray, n_assign: int = 2) -> list:
+        """Assign document vector to nearest n_assign Voronoi cells.
+
+        Args:
+            embedding: Document vector with shape (D,)
+            n_assign: Number of nearest cells to assign (default: 2)
+
+        Returns:
+            List of cell IDs (integers), length n_assign
+        """
+        emb_norm = embedding / np.linalg.norm(embedding)
+        sims = self.centroids @ emb_norm
+        return np.argsort(-sims)[:n_assign].tolist()
+
+    def probe_cells(self, query_embedding: np.ndarray, n_probe: int = 5) -> list:
+        """Get top n_probe nearest Voronoi cells for a query vector.
+
+        Args:
+            query_embedding: Query vector with shape (D,)
+            n_probe: Number of nearest cells to probe (default: 5)
+
+        Returns:
+            List of cell IDs (integers), length n_probe
+        """
+        emb_norm = query_embedding / np.linalg.norm(query_embedding)
+        sims = self.centroids @ emb_norm
+        return np.argsort(-sims)[:n_probe].tolist()
+
+
+def load_voronoi_data(model_id: str) -> Optional[VoronoiData]:
+    """Load Voronoi centroid data for a model.
+
+    Looks for data file at data/voronoi/{model_id}.npy
+
+    Args:
+        model_id: Model identifier (e.g., 'all_minilm_l6', 'e5_base_multilingual')
+                  Note: Use underscores, not hyphens
+
+    Returns:
+        VoronoiData instance or None if data not available
+    """
+    try:
+        data_pkg = files("collective.vectorsearch.data.voronoi")
+        filename = f"{model_id}.npy"
+
+        with as_file(data_pkg.joinpath(filename)) as path:
+            centroids = np.load(path)
+
+        # Ensure centroids are L2-normalized
+        norms = np.linalg.norm(centroids, axis=1, keepdims=True)
+        if not np.allclose(norms, 1.0, atol=0.01):
+            centroids = centroids / norms
+
+        logger.debug(f"Loaded Voronoi data for model: {model_id}")
+        return VoronoiData(centroids)
+
+    except FileNotFoundError:
+        logger.debug(f"Voronoi data not found for model: {model_id}")
+        return None
+    except Exception as e:
+        logger.warning(f"Failed to load Voronoi data for {model_id}: {e}")
+        return None
+
+
+def validate_voronoi_data(voronoi_data: VoronoiData, vector_dims: int) -> bool:
+    """Validate Voronoi data dimensions match model configuration.
+
+    Args:
+        voronoi_data: VoronoiData instance to validate
+        vector_dims: Expected vector dimensionality
+
+    Returns:
+        True if valid, False otherwise
+    """
+    if voronoi_data.vector_dims != vector_dims:
+        logger.error(
+            f"Voronoi centroid dimension mismatch: expected {vector_dims}, "
+            f"got {voronoi_data.vector_dims}"
         )
         return False
 

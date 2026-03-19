@@ -212,8 +212,9 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
             if cached_model is None or (
                 cached_model == model_id and cached_chunk == chunk_size
             ):
-                # Same model (or externally set), just ensure ITQ/pivot data
+                # Same model (or externally set), just ensure data loaded
                 self._ensure_itq_pivot_loaded()
+                self._ensure_voronoi_loaded()
                 return
             # Model changed — re-initialize
             logger.info(
@@ -251,6 +252,10 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
             self._v_itq_boundary = model_provider.get_itq_boundary()
             self._v_pivot_data = model_provider.get_pivot_data()
 
+        # Load Voronoi data if needed
+        if approx_algo == "voronoi_2stage":
+            self._v_voronoi_data = model_provider.get_voronoi_data()
+
         # Initialize similarity algorithm
         self._v_similarity_algorithm = CosineSimilarityAlgorithm()
 
@@ -280,6 +285,31 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
             )
         except Exception as e:
             logger.warning("Failed to load ITQ/pivot data: %s", e)
+
+    def _ensure_voronoi_loaded(self):
+        """Load Voronoi centroid data if the algorithm requires it.
+
+        Called when _ensure_initialized() detects embedding is already loaded
+        but the user may have changed the approximation algorithm setting.
+        """
+        settings = self._get_settings()
+        approx_algo = settings.get("approximation_algorithm", "exhaustive_cosine")
+        if approx_algo != "voronoi_2stage":
+            return
+        if getattr(self, "_v_voronoi_data", None) is not None:
+            return
+        model_provider = getattr(self, "_v_model_provider", None)
+        if model_provider is None:
+            return
+        try:
+            self._v_voronoi_data = model_provider.get_voronoi_data()
+            logger.info(
+                "Loaded Voronoi data for %s (voronoi=%s)",
+                approx_algo,
+                self._v_voronoi_data is not None,
+            )
+        except Exception as e:
+            logger.warning("Failed to load Voronoi data: %s", e)
 
     @property
     def embedding(self):
@@ -327,10 +357,21 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
                 "itq_candidates": registry(
                     "collective.vectorsearch.itq_candidates", default=100
                 ),
+                "voronoi_n_assign": registry(
+                    "collective.vectorsearch.voronoi_n_assign", default=2
+                ),
+                "voronoi_n_probe": registry(
+                    "collective.vectorsearch.voronoi_n_probe", default=5
+                ),
             }
 
             # Log current implementation status
             self._log_implementation_status(settings)
+
+            # Allow temporary override for testing API
+            override = getattr(self, "_settings_override", None)
+            if override:
+                settings.update(override)
 
             return settings
 
@@ -354,6 +395,7 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
             "exhaustive_cosine",
             "itq_lsh_2stage",
             "itq_lsh_3stage",
+            "voronoi_2stage",
         ]
         if settings["approximation_algorithm"] not in implemented_algorithms:
             logger.warning(
@@ -371,6 +413,8 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
             "approximation_algorithm": "exhaustive_cosine",
             "pivot_threshold": 200,
             "itq_candidates": 100,
+            "voronoi_n_assign": 2,
+            "voronoi_n_probe": 5,
         }
 
     def _change_length(self, name, value):
@@ -585,10 +629,11 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
 
         Supports:
         - exhaustive_cosine: Brute-force cosine similarity on all documents
-        - itq_lsh_2stage: Hamming distance filtering → cosine similarity
-        - itq_lsh_3stage: Pivot range filtering → Hamming → cosine similarity
+        - itq_lsh_2stage: Hamming distance filtering -> cosine similarity
+        - itq_lsh_3stage: Pivot range filtering -> Hamming -> cosine similarity
+        - voronoi_2stage: Voronoi cell filtering -> cosine similarity
 
-        Falls back to exhaustive_cosine if required data (ITQ/pivot) is unavailable.
+        Falls back to exhaustive_cosine if required data is unavailable.
         """
         query_str = " ".join(record.keys)
         if not query_str:
@@ -598,16 +643,15 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
         settings = self._get_settings()
         algo = settings.get("approximation_algorithm", "exhaustive_cosine")
 
-        # For ITQ/pivot algorithms, compute passage-space embedding for hash
-        # computation. ITQ boundaries and pivot data were trained on passage
-        # embeddings, so the query must be in the same vector space for
-        # meaningful Hamming distance / pivot distance comparisons.
+        # For approximate algorithms, compute passage-space embedding.
+        # ITQ/pivot/Voronoi data were trained on passage embeddings, so the
+        # query must be in the same vector space for meaningful comparisons.
         # The query-prefixed embedding is still used for final cosine scoring.
         passage_vectors = None
-        if algo in ("itq_lsh_2stage", "itq_lsh_3stage"):
+        if algo in ("itq_lsh_2stage", "itq_lsh_3stage", "voronoi_2stage"):
             passage_vectors = self.embedding.embed(query_str, query=False)
 
-        # Layered fallback: 3-stage → 2-stage → exhaustive
+        # Layered fallback: 3-stage -> 2-stage -> exhaustive
         if algo == "itq_lsh_3stage":
             itq = getattr(self, "_v_itq_boundary", None)
             pivot = getattr(self, "_v_pivot_data", None)
@@ -636,6 +680,18 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
                     return result
             logger.warning(
                 "ITQ data unavailable, falling back to exhaustive cosine search"
+            )
+
+        elif algo == "voronoi_2stage":
+            voronoi = getattr(self, "_v_voronoi_data", None)
+            if voronoi:
+                result = self._query_voronoi_2stage(
+                    query_vectors, passage_vectors, settings
+                )
+                if result is not None:
+                    return result
+            logger.warning(
+                "Voronoi data unavailable, falling back to exhaustive cosine search"
             )
 
         return self._query_exhaustive_cosine(query_vectors)
@@ -934,6 +990,82 @@ class VectorIndex(Persistent, Implicit, SimpleItem):
             if int_docid not in bucket:
                 bucket[int_docid] = int(score * 100_000_000)
         return bucket
+
+    def _query_voronoi_2stage(self, query_vectors, passage_vectors, settings):
+        """2-stage search: Voronoi cell filtering -> Cosine similarity.
+
+        Stage 1: Compute centroid similarity with passage-space embedding,
+                 retrieve documents from top n_probe cells via KeywordIndex.
+        Stage 2: Compute cosine similarity with query-space embedding.
+
+        Args:
+            query_vectors: Query-prefixed embeddings (for cosine similarity)
+            passage_vectors: Passage-prefixed embeddings (for centroid probing)
+            settings: Configuration dict
+        """
+        t0 = time.perf_counter()
+        voronoi_data = self._v_voronoi_data
+        n_probe = settings.get("voronoi_n_probe", 5)
+
+        # Use passage-space embedding for centroid probing
+        # (centroids were trained on passage embeddings)
+        pv = passage_vectors[0] if passage_vectors.ndim == 2 else passage_vectors
+        probe_cells = voronoi_data.probe_cells(pv, n_probe=n_probe)
+
+        # Stage 1: KeywordIndex OR query for matching Voronoi cells
+        try:
+            catalog = api.portal.get_tool("portal_catalog")
+        except Exception:
+            logger.warning("Cannot access catalog for voronoi search")
+            return None
+
+        voronoi_index = catalog.Indexes.get("voronoi_cells")
+        if voronoi_index is None:
+            logger.warning("voronoi_cells index not found in catalog")
+            return None
+
+        query_dict = {"voronoi_cells": {"query": probe_cells, "operator": "or"}}
+        index_query = IndexQuery(
+            query_dict,
+            "voronoi_cells",
+            voronoi_index.query_options,
+            voronoi_index.operators,
+            voronoi_index.useOperator,
+        )
+        stage1_result = voronoi_index.query_index(index_query)
+
+        # Intersect with documents in this VectorIndex
+        our_docids = IISet(self._docid_to_path.keys())
+        if stage1_result is not None:
+            stage1_candidates = intersection(IISet(stage1_result), our_docids)
+        else:
+            stage1_candidates = IISet()
+
+        t1 = time.perf_counter()
+        logger.info(
+            "voronoi Stage 1: %d -> %d candidates in %.4fs (probed cells=%s)",
+            len(our_docids),
+            len(stage1_candidates) if stage1_candidates else 0,
+            t1 - t0,
+            probe_cells,
+        )
+
+        if not stage1_candidates:
+            return IIBucket()
+
+        # Stage 2: Cosine similarity (using query-space embedding)
+        result = self._cosine_on_candidates(
+            query_vectors, list(stage1_candidates), catalog
+        )
+        t2 = time.perf_counter()
+        logger.info(
+            "voronoi Stage 2 (cosine): %d -> %d results in %.4fs",
+            len(stage1_candidates),
+            len(result),
+            t2 - t1,
+        )
+        logger.info("Total voronoi 2-stage: %.4fs", t2 - t0)
+        return result
 
     def _get_all_doc_vectors(self):
         """Get all document vectors for search.

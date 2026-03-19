@@ -44,12 +44,16 @@ def _get_settings():
             "embedding_chunk_size": registry(
                 "collective.vectorsearch.embedding_chunk_size", default=500
             ),
+            "voronoi_n_assign": registry(
+                "collective.vectorsearch.voronoi_n_assign", default=2
+            ),
         }
     except Exception as e:
         logger.debug(f"Could not read registry: {e}")
         return {
             "embedding_model": "all-minilm-l6",
             "embedding_chunk_size": 500,
+            "voronoi_n_assign": 2,
         }
 
 
@@ -175,6 +179,19 @@ def compute_and_store_vectors(obj):
         except Exception as e:
             logger.warning(f"Failed to compute pivot distances for {obj}: {e}")
 
+    # Compute Voronoi cell assignments
+    voronoi_cells_list = []
+    if hasattr(model_provider, "get_voronoi_data"):
+        try:
+            voronoi_data = model_provider.get_voronoi_data()
+            if voronoi_data is not None:
+                n_assign = settings.get("voronoi_n_assign", 2)
+                for vector in vectors:
+                    cells = voronoi_data.assign_cells(vector, n_assign=n_assign)
+                    voronoi_cells_list.append(cells)
+        except Exception as e:
+            logger.warning(f"Failed to compute Voronoi cells for {obj}: {e}")
+
     # Store in annotations
     try:
         # Convert numpy arrays to lists for ZODB storage
@@ -186,11 +203,13 @@ def compute_and_store_vectors(obj):
             itq_hashes=itq_hashes_list if itq_hashes_list else None,
             pivot_distances=pivot_distances_list if pivot_distances_list else None,
             model_id=model_id,
+            voronoi_cells=voronoi_cells_list if voronoi_cells_list else None,
         )
         logger.debug(
             f"Stored vector data for {obj}: {num_chunks} vectors, "
             f"{len(itq_hashes_list)} ITQ hashes, "
-            f"{len(pivot_distances_list)} pivot distances"
+            f"{len(pivot_distances_list)} pivot distances, "
+            f"{len(voronoi_cells_list)} voronoi cells"
         )
     except Exception as e:
         logger.error(f"Failed to store vector data for {obj}: {e}")

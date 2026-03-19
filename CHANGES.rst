@@ -2,6 +2,55 @@ Changelog
 =========
 
 
+1.0a4 (unreleased)
+------------------
+
+Features:
+
+- **Experimental**: Add Voronoi partition search (``voronoi_2stage``) based on
+  `lsh-cascade-poc <https://github.com/cmscom/lsh-cascade-poc>`_ research
+  (notebooks 111, 114, 115). Voronoi partitioning showed better recall
+  than ITQ-LSH at comparable candidate reduction ratios in PoC benchmarks.
+  This feature is experimental and may be removed or significantly changed
+  in future releases depending on real-world evaluation results.
+
+  - Stage 1: Voronoi cell filtering via KeywordIndex (multi-probe)
+  - Stage 2: Cosine similarity scoring on filtered candidates
+
+  [terapyon]
+
+- Add ``VoronoiData`` class for K-Means centroid loading and cell assignment.
+  Pre-trained centroid data (256 clusters) included for All-MiniLM-L6-v2
+  and E5-Base Multilingual models.
+  [terapyon]
+
+- Add ``voronoi_cells`` KeywordIndex with multi-assign support
+  (each document chunk assigned to multiple nearest centroids).
+  [terapyon]
+
+- Add ``voronoi_n_assign`` and ``voronoi_n_probe`` registry settings
+  for configuring document cell assignments and query probing.
+  [terapyon]
+
+- Add upgrade step 1005 -> 1006: creates ``voronoi_cells`` KeywordIndex
+  and Voronoi registry keys.
+  [terapyon]
+
+- Add provisional JSON API endpoint (``@@vectorsearch-api``) for E2E testing
+  of different approximation algorithms. Accepts ``q``, ``limit``, and
+  ``algorithm`` parameters, returns search results as JSON. The ``algorithm``
+  parameter temporarily overrides the registry setting for that request only.
+  Not a public API; subject to removal or change without notice.
+  Usage: ``GET /Plone/@@vectorsearch-api?q=search+terms&algorithm=voronoi_2stage&limit=10``
+  [terapyon]
+
+Bug fixes:
+
+- Fix ``_reindex_all_vector_indexes()`` and ``_clear_all_vector_indexes()``
+  in control panel to include ``voronoi_cells`` index.
+  [terapyon]
+
+
 1.0a3 (unreleased)
 ------------------
 

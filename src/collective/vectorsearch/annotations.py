@@ -1,7 +1,8 @@
 """Annotation storage for vector search data.
 
 This module provides utilities for storing and retrieving vector search data
-(embeddings, ITQ hashes, pivot distances) in content object annotations.
+(embeddings, ITQ hashes, pivot distances, Voronoi cells) in content object
+annotations.
 
 The data flow is:
 1. Event subscriber computes embeddings when content is created/modified
@@ -13,6 +14,7 @@ Annotation Keys:
 - collective.vectorsearch.vectors: List of embedding vectors (as Python lists)
 - collective.vectorsearch.itq_hashes: List of (high, low) tuples for ITQ hashes
 - collective.vectorsearch.pivot_distances: List of 8-tuples for pivot distances
+- collective.vectorsearch.voronoi_cells: List of cell ID lists for Voronoi partitioning
 - collective.vectorsearch.model_id: ID of the embedding model used
 """
 
@@ -27,6 +29,7 @@ logger = logging.getLogger("collective.vectorsearch")
 ANNOTATION_KEY_VECTORS = "collective.vectorsearch.vectors"
 ANNOTATION_KEY_ITQ_HASHES = "collective.vectorsearch.itq_hashes"
 ANNOTATION_KEY_PIVOT_DISTANCES = "collective.vectorsearch.pivot_distances"
+ANNOTATION_KEY_VORONOI_CELLS = "collective.vectorsearch.voronoi_cells"
 ANNOTATION_KEY_MODEL_ID = "collective.vectorsearch.model_id"
 
 
@@ -53,6 +56,7 @@ def get_vector_data(obj):
             "vectors": vectors,
             "itq_hashes": annotations.get(ANNOTATION_KEY_ITQ_HASHES),
             "pivot_distances": annotations.get(ANNOTATION_KEY_PIVOT_DISTANCES),
+            "voronoi_cells": annotations.get(ANNOTATION_KEY_VORONOI_CELLS),
             "model_id": annotations.get(ANNOTATION_KEY_MODEL_ID),
         }
     except TypeError:
@@ -115,6 +119,24 @@ def get_pivot_distances(obj):
         return None
 
 
+def get_voronoi_cells(obj):
+    """Get Voronoi cell assignments from object annotations.
+
+    Args:
+        obj: Content object
+
+    Returns:
+        List of cell ID lists (one per chunk), or None
+    """
+    try:
+        annotations = IAnnotations(obj, None)
+        if annotations is None:
+            return None
+        return annotations.get(ANNOTATION_KEY_VORONOI_CELLS)
+    except TypeError:
+        return None
+
+
 def get_model_id(obj):
     """Get the model ID used for embedding from object annotations.
 
@@ -133,7 +155,9 @@ def get_model_id(obj):
         return None
 
 
-def set_vector_data(obj, vectors, itq_hashes, pivot_distances, model_id):
+def set_vector_data(
+    obj, vectors, itq_hashes, pivot_distances, model_id, voronoi_cells=None
+):
     """Store all vector search data in object annotations.
 
     Args:
@@ -142,6 +166,7 @@ def set_vector_data(obj, vectors, itq_hashes, pivot_distances, model_id):
         itq_hashes: List of (high, low) tuples for ITQ hashes
         pivot_distances: List of 8-tuples for pivot distances
         model_id: ID of the embedding model used
+        voronoi_cells: List of cell ID lists for Voronoi partitioning (optional)
     """
     try:
         annotations = IAnnotations(obj)
@@ -158,13 +183,15 @@ def set_vector_data(obj, vectors, itq_hashes, pivot_distances, model_id):
         annotations[ANNOTATION_KEY_VECTORS] = vectors
         annotations[ANNOTATION_KEY_ITQ_HASHES] = itq_hashes
         annotations[ANNOTATION_KEY_PIVOT_DISTANCES] = pivot_distances
+        annotations[ANNOTATION_KEY_VORONOI_CELLS] = voronoi_cells
         annotations[ANNOTATION_KEY_MODEL_ID] = model_id
 
         logger.debug(
             f"Stored vector data for {obj}: "
             f"{len(vectors) if vectors else 0} vectors, "
             f"{len(itq_hashes) if itq_hashes else 0} ITQ hashes, "
-            f"{len(pivot_distances) if pivot_distances else 0} pivot distances"
+            f"{len(pivot_distances) if pivot_distances else 0} pivot distances, "
+            f"{len(voronoi_cells) if voronoi_cells else 0} voronoi cells"
         )
     except TypeError as e:
         logger.warning(f"Could not store vector data for {obj}: {e}")
@@ -186,6 +213,7 @@ def clear_vector_data(obj):
             ANNOTATION_KEY_VECTORS,
             ANNOTATION_KEY_ITQ_HASHES,
             ANNOTATION_KEY_PIVOT_DISTANCES,
+            ANNOTATION_KEY_VORONOI_CELLS,
             ANNOTATION_KEY_MODEL_ID,
         ]:
             if key in annotations:

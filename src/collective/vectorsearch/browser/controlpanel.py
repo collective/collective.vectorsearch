@@ -135,14 +135,13 @@ class VectorSearchControlPanelForm(RegistryEditForm):
             except Exception as e:
                 logger.error("Failed to clear index %s: %s", index_id, e)
 
-        # 2. Clear pivot1-8 KeywordIndexes
-        for i in range(1, 9):
-            pivot_name = f"pivot{i}"
-            if pivot_name in catalog.Indexes:
+        # 2. Clear pivot1-8 and voronoi_cells KeywordIndexes
+        for idx_name in [f"pivot{i}" for i in range(1, 9)] + ["voronoi_cells"]:
+            if idx_name in catalog.Indexes:
                 try:
-                    catalog.Indexes[pivot_name].clear()
+                    catalog.Indexes[idx_name].clear()
                 except Exception as e:
-                    logger.error("Failed to clear %s: %s", pivot_name, e)
+                    logger.error("Failed to clear %s: %s", idx_name, e)
 
         # 3. Clear content annotations
         annotation_count = 0
@@ -184,7 +183,8 @@ class VectorSearchControlPanelForm(RegistryEditForm):
             return 0, 0, 0
 
         pivot_ids = [f"pivot{i}" for i in range(1, 9) if f"pivot{i}" in catalog.Indexes]
-        all_idxs = vector_index_ids + pivot_ids
+        voronoi_ids = ["voronoi_cells"] if "voronoi_cells" in catalog.Indexes else []
+        all_idxs = vector_index_ids + pivot_ids + voronoi_ids
 
         brains = list(self._get_all_brains())
         logger.info(

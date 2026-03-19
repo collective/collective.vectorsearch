@@ -105,6 +105,32 @@ class IVectorSearchSettings(Interface):
         max=10000,
     )
 
+    voronoi_n_assign = schema.Int(
+        title=_("Voronoi Cell Assignments (Documents)"),
+        description=_(
+            "Number of nearest Voronoi cells to assign each document chunk to. "
+            "Higher values improve recall but increase index size. "
+            "Recommended: 2. Default: 2."
+        ),
+        default=2,
+        required=False,
+        min=1,
+        max=10,
+    )
+
+    voronoi_n_probe = schema.Int(
+        title=_("Voronoi Cell Probes (Query)"),
+        description=_(
+            "Number of nearest Voronoi cells to probe during search. "
+            "Higher values improve recall but increase search time. "
+            "Recommended: 3-10. Default: 5."
+        ),
+        default=5,
+        required=False,
+        min=1,
+        max=50,
+    )
+
     @invariant
     def validate_storage_backend(obj):
         """Validate that only implemented storage backends can be selected."""
@@ -135,12 +161,12 @@ class IVectorSearchSettings(Interface):
             "exhaustive_cosine",
             "itq_lsh_2stage",
             "itq_lsh_3stage",
+            "voronoi_2stage",
         ]
         if obj.approximation_algorithm not in implemented_algorithms:
             raise Invalid(
                 _(
-                    "Approximation algorithm '${algorithm}' is not yet available. "
-                    "Currently supported: Exhaustive Cosine, ITQ LSH 2-stage, ITQ LSH 3-stage.",
+                    "Approximation algorithm '${algorithm}' is not yet available.",
                     mapping={"algorithm": obj.approximation_algorithm},
                 )
             )
@@ -254,4 +280,11 @@ class IEmbeddingModelProvider(Interface):
 
         Returns:
             numpy.ndarray or None if not available
+        """
+
+    def get_voronoi_data():
+        """Load and return Voronoi centroid data.
+
+        Returns:
+            VoronoiData instance or None if not available
         """
