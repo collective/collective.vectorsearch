@@ -39,10 +39,12 @@ class VectorSearchAPIView(BrowserView):
             return json.dumps({"error": "Missing required parameter: q"})
 
         if algorithm and algorithm not in VALID_ALGORITHMS:
-            return json.dumps({
-                "error": f"Invalid algorithm: {algorithm}",
-                "valid_algorithms": VALID_ALGORITHMS,
-            })
+            return json.dumps(
+                {
+                    "error": f"Invalid algorithm: {algorithm}",
+                    "valid_algorithms": VALID_ALGORITHMS,
+                }
+            )
 
         catalog = api.portal.get_tool("portal_catalog")
 
@@ -76,24 +78,29 @@ class VectorSearchAPIView(BrowserView):
             modified = brain.modified
             if modified is not None:
                 modified = modified.ISO8601()
-            results.append({
-                "title": brain.Title,
-                "url": brain.getURL(),
-                "path": brain.getPath(),
-                "modified": modified,
-                "type": brain.portal_type,
-                "description": brain.Description,
-            })
+            results.append(
+                {
+                    "title": brain.Title,
+                    "url": brain.getURL(),
+                    "path": brain.getPath(),
+                    "modified": modified,
+                    "type": brain.portal_type,
+                    "description": brain.Description,
+                }
+            )
 
         effective_algorithm = algorithm or api.portal.get_registry_record(
             "collective.vectorsearch.approximation_algorithm",
             default="exhaustive_cosine",
         )
 
-        return json.dumps({
-            "query": query,
-            "algorithm": effective_algorithm,
-            "count": len(results),
-            "elapsed_seconds": round(elapsed, 4),
-            "results": results,
-        }, ensure_ascii=False)
+        return json.dumps(
+            {
+                "query": query,
+                "algorithm": effective_algorithm,
+                "count": len(results),
+                "elapsed_seconds": round(elapsed, 4),
+                "results": results,
+            },
+            ensure_ascii=False,
+        )
