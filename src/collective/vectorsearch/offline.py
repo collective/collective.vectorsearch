@@ -13,6 +13,7 @@ Usage:
     download_all_models()
 """
 
+import argparse
 import logging
 import os
 import sys
@@ -213,12 +214,27 @@ def download_all_models(cache_dir: Optional[Path] = None) -> None:
 
 def main():
     """CLI entry point."""
+    parser = argparse.ArgumentParser(
+        description="Download embedding models for offline use."
+    )
+    parser.add_argument(
+        "--cache-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Cache directory for model files. "
+            "Defaults to FASTEMBED_CACHE_PATH env var, "
+            "or ~/.cache/fastembed if not set."
+        ),
+    )
+    args = parser.parse_args()
+
     # Set up basic logging
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
     )
 
-    download_all_models()
+    download_all_models(cache_dir=args.cache_dir)
 
 
 if __name__ == "__main__":
