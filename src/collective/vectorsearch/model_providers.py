@@ -183,13 +183,36 @@ class BaseEmbeddingModelProvider:
             )
 
         elif self.embedding_class == "FastEmbedEmbedding":
-            # FastEmbed doesn't use ModelCache (has its own caching)
-            return EmbeddingClass(
-                self.model_name,
-                chunk_size=chunk_size,
-                prefix_query=prefix_query,
-                prefix_passage=prefix_passage,
-            )
+            cache_dir = None
+            if self.use_cache_dir:
+                from collective.vectorsearch.offline import get_cache_dir
+
+                cache_dir = get_cache_dir()
+
+            # Try local-only first to avoid network requests on startup
+            # (same pattern as ModelCache.get_model for SentenceTransformer)
+            try:
+                return EmbeddingClass(
+                    self.model_name,
+                    chunk_size=chunk_size,
+                    prefix_query=prefix_query,
+                    prefix_passage=prefix_passage,
+                    cache_dir=cache_dir,
+                    local_files_only=True,
+                )
+            except Exception:
+                logger.info(
+                    "FastEmbed model '%s' local load failed, "
+                    "trying with network access...",
+                    self.model_name,
+                )
+                return EmbeddingClass(
+                    self.model_name,
+                    chunk_size=chunk_size,
+                    prefix_query=prefix_query,
+                    prefix_passage=prefix_passage,
+                    cache_dir=cache_dir,
+                )
 
         else:
             raise ValueError(f"Unknown embedding_class: {self.embedding_class}")

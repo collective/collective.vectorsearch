@@ -247,16 +247,43 @@ Register it in your package's ``configure.zcml``::
     />
 
 
+Model Cache Directory
+~~~~~~~~~~~~~~~~~~~~~
+
+By default, FastEmbed stores model files in ``~/.cache/fastembed``.
+Set the ``FASTEMBED_CACHE_PATH`` environment variable to use a persistent location.
+
+In buildout (``environment-vars`` in the instance section)::
+
+    [instance]
+    recipe = plone.recipe.zope2instance
+    environment-vars =
+        FASTEMBED_CACHE_PATH ${buildout:directory}/var/fastembed_cache
+
+Or in a shell startup script / ``.env`` file::
+
+    export FASTEMBED_CACHE_PATH=/var/plone/fastembed_cache
+
+**Important:** Some environments (e.g., Docker with tmpfs) may default the cache to
+``/tmp``, which is cleared on reboot. Setting ``FASTEMBED_CACHE_PATH`` to a persistent
+directory prevents model files from being lost after a restart.
+
+On startup, the package first attempts to load models from the local cache without
+network access. If the local cache is unavailable, it falls back to downloading from
+HuggingFace Hub. This means that once models are downloaded, the system works fully
+offline.
+
 Offline Model Download
 ~~~~~~~~~~~~~~~~~~~~~~
 
-FastEmbed downloads models on first use. For offline environments, pre-download
-models using the CLI command::
+FastEmbed downloads models on first use. For offline or production environments,
+pre-download models to the cache directory using the CLI command::
 
+    # Set cache directory first (optional, defaults to ~/.cache/fastembed)
+    export FASTEMBED_CACHE_PATH=/var/plone/fastembed_cache
+
+    # Download all supported models to the cache directory
     vectorsearch-download
-
-This downloads all supported models to ``~/.cache/fastembed``.
-Set ``FASTEMBED_CACHE_PATH`` environment variable to use a different location.
 
 
 Important Notes

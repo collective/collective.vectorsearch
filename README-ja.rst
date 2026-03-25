@@ -246,16 +246,43 @@ ZMIから追加のVectorIndexインスタンスを作成できます:
     />
 
 
+モデルキャッシュディレクトリ
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+デフォルトでは、FastEmbedはモデルファイルを ``~/.cache/fastembed`` に保存します。
+``FASTEMBED_CACHE_PATH`` 環境変数を設定して永続的な場所を指定できます。
+
+buildoutの場合（instanceセクションの ``environment-vars``）::
+
+    [instance]
+    recipe = plone.recipe.zope2instance
+    environment-vars =
+        FASTEMBED_CACHE_PATH ${buildout:directory}/var/fastembed_cache
+
+起動スクリプトや ``.env`` ファイルの場合::
+
+    export FASTEMBED_CACHE_PATH=/var/plone/fastembed_cache
+
+**重要:** 一部の環境（例: tmpfsを使用するDocker）では、キャッシュがデフォルトで ``/tmp`` に
+配置される場合があります。 ``/tmp`` は再起動時にクリアされるため、 ``FASTEMBED_CACHE_PATH``
+を永続的なディレクトリに設定することで、再起動後のモデルファイル消失を防げます。
+
+起動時、パッケージはまずネットワークアクセスなしでローカルキャッシュからモデルの読み込みを
+試みます。ローカルキャッシュが利用できない場合は、HuggingFace Hubからのダウンロードに
+フォールバックします。これにより、モデルがダウンロード済みであればシステムは完全にオフラインで
+動作します。
+
 オフラインモデルダウンロード
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-FastEmbedは初回使用時にモデルをダウンロードします。オフライン環境では、
-CLIコマンドを使用してモデルを事前にダウンロードできます::
+FastEmbedは初回使用時にモデルをダウンロードします。オフライン環境や本番環境では、
+CLIコマンドを使用してキャッシュディレクトリにモデルを事前にダウンロードできます::
 
+    # キャッシュディレクトリを設定（省略時は ~/.cache/fastembed）
+    export FASTEMBED_CACHE_PATH=/var/plone/fastembed_cache
+
+    # サポートされているすべてのモデルをキャッシュディレクトリにダウンロード
     vectorsearch-download
-
-これにより、サポートされているすべてのモデルが ``~/.cache/fastembed`` にダウンロードされます。
-別の場所を使用するには ``FASTEMBED_CACHE_PATH`` 環境変数を設定してください。
 
 
 重要な注意事項
