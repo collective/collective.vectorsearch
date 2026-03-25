@@ -30,13 +30,48 @@ SUPPORTED_MODELS = [
         "name": "sentence-transformers/all-MiniLM-L6-v2",
         "description": "MiniLM L6 v2 - lightweight English model (~90 MB)",
         "provider_id": "all-minilm-l6",
+        "custom_registration": None,
     },
     {
         "name": "intfloat/multilingual-e5-base",
         "description": "E5 Base Multilingual - 100+ languages (~1.1 GB)",
         "provider_id": "e5-base-multilingual",
+        "custom_registration": {
+            "dim": 768,
+            "pooling": "mean",
+            "normalization": True,
+            "model_file": "onnx/model.onnx",
+            "additional_files": ["sentencepiece.bpe.model"],
+        },
     },
 ]
+
+
+def _register_custom_model_if_needed(model_name: str) -> None:
+    """Register a custom model with FastEmbed if it requires custom registration.
+
+    Looks up the model in SUPPORTED_MODELS and, if it has custom_registration
+    config, delegates to model_providers._register_fastembed_custom_model().
+    """
+    for model_info in SUPPORTED_MODELS:
+        if model_info["name"] == model_name and model_info.get("custom_registration"):
+            from fastembed.common.model_description import PoolingType
+
+            from collective.vectorsearch.model_providers import (
+                _register_fastembed_custom_model,
+            )
+
+            reg = model_info["custom_registration"]
+            pooling_map = {"mean": PoolingType.MEAN, "cls": PoolingType.CLS}
+            _register_fastembed_custom_model(
+                model_name=model_name,
+                dim=reg["dim"],
+                pooling=pooling_map[reg["pooling"]],
+                normalization=reg["normalization"],
+                model_file=reg["model_file"],
+                additional_files=reg.get("additional_files"),
+            )
+            return
 
 
 def get_cache_dir() -> Path:
@@ -76,6 +111,10 @@ def download_model(model_name: str, cache_dir: Optional[Path] = None) -> Path:
 
     cache_dir = cache_dir or get_cache_dir()
     os.environ["FASTEMBED_CACHE_PATH"] = str(cache_dir)
+
+    # Register custom model if needed (e.g., intfloat/multilingual-e5-base
+    # is not in FastEmbed's built-in supported list)
+    _register_custom_model_if_needed(model_name)
 
     logger.info(f"Downloading model {model_name} to {cache_dir}")
     print(f"Downloading: {model_name}")

@@ -41,7 +41,13 @@ class FastEmbedEmbedding(EmbeddingBase):
     meta_type = "FastEmbedEmbedding"
 
     def __init__(
-        self, model_name, chunk_size=500, prefix_query=None, prefix_passage=None
+        self,
+        model_name,
+        chunk_size=500,
+        prefix_query=None,
+        prefix_passage=None,
+        cache_dir=None,
+        local_files_only=False,
     ):
         """
         Initialize FastEmbed embedding.
@@ -51,6 +57,9 @@ class FastEmbedEmbedding(EmbeddingBase):
             chunk_size: Maximum text length for chunking
             prefix_query: Prefix to add to query text
             prefix_passage: Prefix to add to passage/document text
+            cache_dir: Directory for model file cache (None uses FastEmbed default)
+            local_files_only: If True, only use locally cached models without
+                network access
         """
         try:
             from fastembed import TextEmbedding
@@ -59,7 +68,13 @@ class FastEmbedEmbedding(EmbeddingBase):
                 "FastEmbed library not installed. Install with: pip install fastembed"
             ) from err
 
-        self.model = TextEmbedding(model_name=model_name)
+        kwargs = {}
+        if cache_dir is not None:
+            kwargs["cache_dir"] = str(cache_dir)
+        if local_files_only:
+            kwargs["local_files_only"] = True
+
+        self.model = TextEmbedding(model_name=model_name, **kwargs)
         self.chunk_size = chunk_size
         self.prefix_query = prefix_query
         self.prefix_passage = prefix_passage
