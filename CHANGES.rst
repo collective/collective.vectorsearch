@@ -7,6 +7,12 @@ Changelog
 
 Bug fixes:
 
+- Fix ``vectorsearch-download`` CLI failing for custom models
+  (e.g., ``intfloat/multilingual-e5-base``) that are not in FastEmbed's
+  built-in supported list. The download command now registers custom models
+  via ``_register_fastembed_custom_model()`` before attempting download.
+  [terapyon]
+
 - Pass ``cache_dir`` and ``local_files_only`` to FastEmbed ``TextEmbedding``.
   Previously, ``FastEmbedEmbedding`` did not forward these parameters, so the
   cache location was entirely dependent on the ``FASTEMBED_CACHE_PATH``
