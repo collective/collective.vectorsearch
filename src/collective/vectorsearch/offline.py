@@ -55,10 +55,11 @@ def _register_custom_model_if_needed(model_name: str) -> None:
     """
     for model_info in SUPPORTED_MODELS:
         if model_info["name"] == model_name and model_info.get("custom_registration"):
+            from fastembed.common.model_description import PoolingType
+
             from collective.vectorsearch.model_providers import (
                 _register_fastembed_custom_model,
             )
-            from fastembed.common.model_description import PoolingType
 
             reg = model_info["custom_registration"]
             pooling_map = {"mean": PoolingType.MEAN, "cls": PoolingType.CLS}
@@ -110,6 +111,10 @@ def download_model(model_name: str, cache_dir: Optional[Path] = None) -> Path:
 
     cache_dir = cache_dir or get_cache_dir()
     os.environ["FASTEMBED_CACHE_PATH"] = str(cache_dir)
+
+    # Register custom model if needed (e.g., intfloat/multilingual-e5-base
+    # is not in FastEmbed's built-in supported list)
+    _register_custom_model_if_needed(model_name)
 
     logger.info(f"Downloading model {model_name} to {cache_dir}")
     print(f"Downloading: {model_name}")
